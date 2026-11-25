@@ -218,6 +218,9 @@ var Ir = function () {
         (u0.sel === +e.dataset.i && u0.del < 0) || ((u0.sel = +e.dataset.i), (u0.del = -1), Sr());
       }),
         (e.ondblclick = () => {
+          // Touch devices sometimes synthesize dblclick after two taps.
+          // Only desktop pointer users may enter a character via double-click.
+          if (window.matchMedia('(pointer: coarse)').matches) return;
           ((u0.sel = +e.dataset.i), Er());
         }));
     }),
