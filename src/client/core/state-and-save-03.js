@@ -104,7 +104,8 @@ var I3 = function () {
     sex: 0,
     lvl: 1,
     xp: 0,
-    gold: 0,
+    // Starting silver for newly created characters only; existing saves override this.
+    gold: 50000,
     attrPts: 0,
     attr: { str: 0, dex: 0, vit: 0, eng: 0 },
     knbV: 2,
