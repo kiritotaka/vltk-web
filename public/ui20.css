@@ -21,6 +21,9 @@ body.u20 #panel::before{display:none!important}
 #u20r{position:fixed;top:4px;z-index:8;display:flex;gap:6px}
 .u20rb{width:46px;height:46px;border-radius:50%;background:radial-gradient(#6b5530,#2a1f0e);border:2px solid #b9974f;color:#ffe9b0;font:600 9.5px/11px var(--font,Tahoma);text-align:center;cursor:pointer;box-shadow:0 2px 4px #000;padding:0}
 .u20rb:hover{filter:brightness(1.25)}
+/* Only the round Reward button gets a badge when claimable rewards exist. */
+#u20gift{position:relative}
+#u20gift.on::after{content:"";position:absolute;top:0;right:0;width:9px;height:9px;border-radius:50%;background:#e0402a;box-shadow:0 0 0 2px #0f1613;pointer-events:none;animation:gpulse 1.2s infinite}
 #u20gold{position:fixed;right:6px;z-index:8;display:flex;gap:10px;color:#ffd970;font-weight:700;font-size:12px;text-shadow:0 1px 2px #000,0 0 3px #000}
 #u20gold img{width:15px;height:15px;vertical-align:-3px;margin-right:2px}
 /* cot hoat dong ben phai */
