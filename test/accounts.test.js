@@ -102,3 +102,25 @@ test('storage API blocks rebirth in production and dev, including backups, impor
     } finally { await app.close(); db.close(); }
   }
 });
+
+test('new and existing game accounts default to user, with server-backed GM roles', async () => {
+  const db = openDatabase(':memory:');
+  const { app } = createServer({ db,downloadAssets:false,development:true });
+  try {
+    const first = await auth(app, 'register', 'normal_player');
+    assert.equal(first.statusCode, 200, first.body);
+    assert.equal(first.json().user.role, 'user');
+    const normalCookie = cookieOf(first);
+    assert.equal((await app.inject({url:'/api/auth/session',headers:{cookie:normalCookie}})).json().user.role,'user');
+    const second = await auth(app, 'register', 'kiritotaka');
+    assert.equal(second.json().user.role, 'user','first admin is never assigned by username or registration order');
+    const adminCookie = cookieOf(second);
+    db.prepare("UPDATE accounts SET role='admin' WHERE username='kiritotaka'").run();
+    assert.equal((await app.inject({url:'/api/auth/session',headers:{cookie:adminCookie}})).json().user.role,'admin');
+    assert.equal((await app.inject({url:'/api/auth/session',headers:{cookie:normalCookie}})).json().user.role,'user');
+    const gm = await auth(app, 'register', 'staff_gm');
+    db.prepare("UPDATE accounts SET role='gm' WHERE username='staff_gm'").run();
+    assert.equal((await auth(app,'login','staff_gm')).json().user.role,'gm');
+    assert.equal(gm.json().user.role,'user');
+  } finally { await app.close(); db.close(); }
+});
