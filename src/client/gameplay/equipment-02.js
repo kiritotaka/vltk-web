@@ -78,10 +78,12 @@ var Dp = () => N0(0, 4);
 
 var Pp = 0.08;
 
+var lootLuckMultiplier = (luck) => 1 + Math.min(100, Math.max(0, Number.isFinite(luck) ? luck : 0)) * 0.005;
+
 var ss = () =>
   (1 + (typeof Lt == "function" ? Lt("drop") : 0)) *
   (1 + 0.1 * v0()) *
-  (1 + Math.min(100, Math.max(0, l.P ? l.P.lucky : 0)) * 0.005);
+  lootLuckMultiplier(l.P?.lucky);
 
 var C6 = { normal: 0.04, elite: 0.35, boss: 1 };
 

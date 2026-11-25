@@ -257,10 +257,18 @@ export function createMarket(db: DatabaseSync) {
       return legacy.approve(owner, marketCharacterSlot(slot), uid);
     });
   }
+  function baselineInventory(username: string) {
+    return transaction(() => {
+      const owner = db.prepare('SELECT id FROM accounts WHERE username=?').get(username)?.id as string | undefined;
+      if (!owner) fail(404, 'Không tìm thấy tài khoản.');
+      return legacy.baseline(owner);
+    });
+  }
+
   const characterItems = (owner: string, slot: CharacterSlot) =>
     [...characters.available(owner, slot), ...legacy.available(owner, slot)];
 
-  return { browse, inventory, execute, issue, characterItems, approveTransfer };
+  return { browse, inventory, execute, issue, characterItems, approveTransfer, baselineInventory };
 }
 
 export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }) {

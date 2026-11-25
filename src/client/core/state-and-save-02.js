@@ -154,7 +154,7 @@ var worldKnbDropChance = (mapLevel, elite = false) => {
 var dropWorldKnb = (enemy) => {
   if (enemy.cls === "boss" || !Ga()) return;
   const chance = worldKnbDropChance(AA(Math.min(o.stage, d0))?.lo, enemy.cls === "elite");
-  if (chance > 0 && Math.random() < chance) {
+  if (chance > 0 && Math.random() < chance * lootLuckMultiplier(l.P?.lucky)) {
     Dr("monster", 1);
     C('💰 Nhặt được <b style="color:#ffd700">1 Kim Nguyên Bảo</b>');
     $();

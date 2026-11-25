@@ -599,6 +599,17 @@ về mục **Vật phẩm giao dịch** của cùng nhân vật.
 node tools/issue-market-assets.js ref-001 ten_tai_khoan approve-transfer jxidle 42
 ```
 
+Ghi nhận Hành trang hiện tại từ save máy chủ một lần cho mỗi tài khoản.
+Món đang khóa chỉ hiện trong tab **Bày bán** sau khi mở khóa.
+
+```powershell
+node tools/issue-market-assets.js baseline-001 ten_tai_khoan baseline-transfer all
+```
+
+Mỗi quái ở map luyện công từ dải 80–90 có một lần tính rớt 1 KNB.
+Tinh anh cộng 0,1 điểm phần trăm vào tỷ lệ map. Mỗi điểm may mắn tăng
+0,5% tương đối trên tỷ lệ sau cộng, tính tối đa 100 điểm.
+
 Mỗi lần cấp dùng một mã riêng. Chạy lại cùng lệnh với cùng mã giữ nguyên
 kết quả. Sau khi mua, người mua nhận vật phẩm về Hành trang hoặc Kho Chợ theo
 nguồn của món, còn người bán nhận tiền vào ví Chợ qua tab **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng

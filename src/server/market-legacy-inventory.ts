@@ -37,17 +37,23 @@ function decode(value: string) {
   } catch { return null; }
 }
 
-function candidate(state: State, uid: number): Item {
+function candidate(state: State, uid: number, allowLocked = false): Item {
   const found = (state.inv ?? []).filter(item => item && typeof item === 'object' && (item as Item).uid === uid);
   const item = found[0] as Item | undefined;
-  if (found.length !== 1 || !item || item.lock || item.ktc || !Number.isInteger(item.d) || item.d < 0 || item.d > 9 ||
+  if (found.length !== 1 || !item || (!allowLocked && item.lock) || item.ktc || !Number.isInteger(item.d) || item.d < 0 || item.d > 9 ||
     typeof item.n !== 'string' || !item.n.trim() || item.n.length > 100) {
     error('Món đồ không ở Hành trang, đang khóa hoặc không thuộc loại trang bị có thể chuyển.');
   }
   return item;
 }
 
-const fingerprint = (item: Item) => createHash('sha256').update(JSON.stringify(item)).digest('hex');
+const historicalFingerprint = (item: Item) => createHash('sha256').update(JSON.stringify(item)).digest('hex');
+function fingerprint(item: Item) {
+  const { lock, ...details } = item;
+  return 'v2:' + createHash('sha256').update(JSON.stringify(details)).digest('hex');
+}
+const matches = (item: Item, digest: string) =>
+  digest === (digest.startsWith('v2:') ? fingerprint(item) : historicalFingerprint(item));
 
 function strip(state: State, ids: Set<number>, digests: Set<string>): boolean {
   let changed = false;
@@ -55,7 +61,7 @@ function strip(state: State, ids: Set<number>, digests: Set<string>): boolean {
     if (!value || typeof value !== 'object') return false;
     const item = value as Item;
     if (Number.isSafeInteger(item.uid) && typeof item.n === 'string' &&
-      (ids.has(item.uid) || digests.has(fingerprint(item)))) return true;
+      (ids.has(item.uid) || digests.has(fingerprint(item)) || digests.has(historicalFingerprint(item)))) return true;
     if (Array.isArray(value)) {
       for (let index = value.length - 1; index >= 0; index--) {
         if (visit(value[index])) { value.splice(index, 1); changed = true; }
@@ -73,6 +79,10 @@ function strip(state: State, ids: Set<number>, digests: Set<string>): boolean {
 
 export function legacyMarketInventory(db: DatabaseSync) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS market_inventory_baselines (
+      owner_id TEXT PRIMARY KEY REFERENCES accounts(id),
+      item_count INTEGER NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS market_inventory_transfers (
       id TEXT PRIMARY KEY,
       owner_id TEXT NOT NULL REFERENCES accounts(id),
@@ -100,13 +110,40 @@ export function legacyMarketInventory(db: DatabaseSync) {
     const result = db.prepare('SELECT id,uid,digest,consumed FROM market_inventory_transfers WHERE owner_id=? AND slot=? AND uid=?')
       .get(owner, slot, uid) as Approval | undefined;
     if (result) {
-      if (!result.consumed && result.digest === digest) return result.id;
+      if (!result.consumed && matches(item, result.digest)) return result.id;
       error('Mã vật phẩm đã được dùng hoặc món đã thay đổi.');
     }
     const id = randomUUID();
     db.prepare('INSERT INTO market_inventory_transfers(id,owner_id,slot,uid,digest) VALUES (?,?,?,?,?)')
       .run(id, owner, slot, uid, digest);
     return id;
+  }
+
+  function baseline(owner: string) {
+    const previous = db.prepare('SELECT item_count FROM market_inventory_baselines WHERE owner_id=?').get(owner);
+    if (previous) return { alreadyRecorded: true, count: Number(previous.item_count) };
+
+    const saves = db.prepare("SELECT key FROM account_storage WHERE account_id=? AND key IN ('jxidle','jxidle_2','jxidle_3')").all(owner);
+    if (!saves.length) error('Tài khoản chưa có nhân vật để ghi nhận.');
+    const insert = db.prepare(`
+      INSERT INTO market_inventory_transfers(id,owner_id,slot,uid,digest) VALUES (?,?,?,?,?)
+      ON CONFLICT(owner_id,slot,uid) DO NOTHING
+    `);
+    let count = 0;
+    for (const row of saves) {
+      const slot = row.key as CharacterSlot;
+      const { state } = load(owner, slot);
+      for (const entry of state.inv as Array<Item | null>) {
+        const uid = entry?.uid;
+        if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 1 || uid === Number.MAX_SAFE_INTEGER) continue;
+        let item: Item;
+        try { item = candidate(state, uid, true); }
+        catch { continue; }
+        count += Number(insert.run(randomUUID(), owner, slot, uid, fingerprint(item)).changes);
+      }
+    }
+    db.prepare('INSERT INTO market_inventory_baselines VALUES (?,?)').run(owner, count);
+    return { alreadyRecorded: false, count };
   }
 
   function check(owner: string, slot: CharacterSlot, id: string) {
@@ -134,7 +171,7 @@ export function legacyMarketInventory(db: DatabaseSync) {
   function take(owner: string, slot: CharacterSlot, approval: Approval) {
     if (approval.consumed) error('Món đã được chuyển sang Chợ.');
     const item = candidate(load(owner, slot).state, approval.uid);
-    if (fingerprint(item) !== approval.digest) error('Món đã thay đổi kể từ lúc được máy chủ xác nhận.');
+    if (!matches(item, approval.digest)) error('Món đã thay đổi kể từ lúc được máy chủ xác nhận.');
     db.prepare('UPDATE market_inventory_transfers SET consumed=1 WHERE id=?').run(approval.id);
     const entries = db.prepare('SELECT key,value FROM account_storage WHERE account_id=?').all(owner);
     const update = db.prepare('UPDATE account_storage SET value=? WHERE account_id=? AND key=?');
@@ -154,10 +191,10 @@ export function legacyMarketInventory(db: DatabaseSync) {
     return rows.flatMap(approval => {
       try {
         const item = candidate(state, approval.uid);
-        return fingerprint(item) === approval.digest ? [{ id: approval.id, name: item.n, item, legacy: true }] : [];
+        return matches(item, approval.digest) ? [{ id: approval.id, name: item.n, item, legacy: true }] : [];
       } catch { return []; }
     });
   }
 
-  return { approve, check, sanitize, take, available };
+  return { approve, baseline, check, sanitize, take, available };
 }
