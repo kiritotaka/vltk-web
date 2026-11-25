@@ -1,7 +1,11 @@
 // online/auth-chat-and-market — shared IIFE scope; order is defined in modules.json.
+// Dedicated Supabase project for this fork. This publishable key is safe to
+// expose to browser clients; data access must be restricted by RLS policies.
+// The SQLite bootstrap currently disables legacy Supabase flows until
+// the account mapping and marketplace transactions are migrated safely.
 window.CHAT_CFG = {
-  url: "https://bzgxytkuwqvshbnkazyv.supabase.co",
-  key: "sb_publishable_fvDq743OAeHgmavUkBzD3g_tQ4nwr4E",
+  url: "https://atchexthhvseabeacotj.supabase.co",
+  key: "sb_publishable_0uCQ2M95mnhLMsmki5YeDg_tIPXMLdw",
   turnstile: "",
 };
 
