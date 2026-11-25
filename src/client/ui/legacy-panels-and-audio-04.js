@@ -2,7 +2,8 @@
 var Rv = function () {
   const A = (e) => {
     const a = lA.getBoundingClientRect(),
-      i = $8();
+      // The canvas displays world coordinates at 80% while HUD stays unscaled.
+      i = $8() * gameWorldZoom;
     return [(e.clientX - a.left) / i, (e.clientY - a.top) / i];
   };
   (lA.addEventListener("pointerdown", (e) => {
