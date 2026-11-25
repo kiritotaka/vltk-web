@@ -90,18 +90,27 @@
         retry.hidden = true;
         label.textContent = 'Đang tải tài nguyên…';
         const errors = [];
+        const failedDetails = [];
         let next = 0;
         async function worker() {
           while (next < remaining.length) {
             const url = remaining[next++];
             try { await loadImage(host, url); completed++; update(); }
-            catch { errors.push(url); }
+            catch (error) {
+              errors.push(url);
+              const reason = error instanceof Error ? error.message : String(error);
+              failedDetails.push({ url, reason });
+              console.warn('[asset-preload] Failed:', url, reason);
+            }
           }
         }
         await Promise.all(Array.from({ length: Math.min(4, remaining.length) }, worker));
         if (!errors.length) break;
         label.textContent = `Chưa tải được ${errors.length} tài nguyên`;
-        count.textContent = `${completed}/${total} đã tải. Kiểm tra kết nối và thử lại.`;
+        // Show the specific failures on mobile where developer tools may be unavailable.
+        count.textContent = `${completed}/${total} đã tải. Lỗi: ${failedDetails.map(({ url, reason }) => `${url} (${reason})`).join('; ')}`;
+        count.style.whiteSpace = 'normal';
+        count.style.overflowWrap = 'anywhere';
         retry.textContent = 'Thử tải lại';
         retry.hidden = false;
         await new Promise(resolve => { retry.onclick = () => { retry.onclick = null; retry.hidden = true; resolve(); }; });
