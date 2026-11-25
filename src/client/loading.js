@@ -29,7 +29,16 @@
     // Same-origin CSS also includes the currently mounted login/character-selection UI.
     function rules(list, base) {
       for (const rule of list) {
-        if (rule.style) for (const match of rule.style.cssText.matchAll(/url\(\s*["']?([^"')\s]+)["']?\s*\)/g)) add(match[1], base);
+        if (rule.style) {
+          // CSS custom-property icons (e.g. --tool-icon for developer tools) are
+          // decorative, and must not block the game startup on mobile browsers.
+          // Regular CSS image declarations are still preloaded and verified.
+          for (const property of rule.style) {
+            if (property.startsWith('--')) continue;
+            const value = rule.style.getPropertyValue(property);
+            for (const match of value.matchAll(/url\(\s*["']?([^"')\s]+)["']?\s*\)/g)) add(match[1], base);
+          }
+        }
         if (rule.cssRules) rules(rule.cssRules, base);
       }
     }
