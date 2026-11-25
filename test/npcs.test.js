@@ -94,6 +94,25 @@ function legacyGame(maps) {
   return scope;
 }
 
+test('NPC pointer hit testing uses the same 80-percent zoom as world rendering', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(path.join(root, 'src/client/gameplay/equipment-trader-01.js'), 'utf8');
+  const camera = fs.readFileSync(path.join(root, 'src/client/render/arena-02.js'), 'utf8');
+  assert.match(source, /scale = \$8\(\) \* gameWorldZoom/);
+  assert.match(camera, /setTransform\(H1 \* gameWorldZoom/);
+  for (const worldZoom of [0.8]) {
+    for (const layoutScale of [1, 0.8]) {
+      const cameraX = 140, cameraY = 300;
+      const npc = { id:'pharmacy', npcId:'pharmacy', position:{ x:280, y:380 } };
+      const screenX = (npc.position.x - cameraX) * layoutScale * worldZoom;
+      const screenY = (npc.position.y - cameraY) * layoutScale * worldZoom;
+      const clicked = { x:screenX / (layoutScale * worldZoom) + cameraX,
+        y:screenY / (layoutScale * worldZoom) + cameraY };
+      assert.equal(npcs.hitNpc([npc], clicked)?.id, 'pharmacy');
+    }
+  }
+});
+
 test('game consumes authored positions, hides removed NPCs, switches maps/teams and keeps original shop interactions', () => {
   const town = readMap(37), war = readMap(9003), scope = legacyGame([town, war]);
   scope.equipmentTrader.place({ x: 99, y: 99, name: 'Mã Phu' });
