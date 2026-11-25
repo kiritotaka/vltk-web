@@ -58,7 +58,9 @@ var gameMaster = (function () {
     saveAndRefresh();
     return true;
   };
-  const development = !!window.localGameConfig?.development;
+  const role = window.localGameAuth?.user?.role || 'user';
+  const isStaff = role === 'gm' || role === 'admin';
+  const development = isStaff && !!window.localGameConfig?.development;
 
   let showSkillRange = false;
   let showDamageAreas = false;
@@ -85,6 +87,7 @@ var gameMaster = (function () {
 
   const amounts = { gold: 1_000_000_000_000, knb: 100_000, xp: 100_000_000, chest: 100, level150: 150, learn90: 1, max90: 1, potential: 3000, warMerit: 10000 };
   function grant(action) {
+    if (!isStaff) throw new Error("Chỉ tài khoản GM / ADMIN được dùng lệnh GameMaster.");
     if (!o || !o.fac) throw new Error("Hãy vào game với một nhân vật trước.");
     if (!(action in amounts)) throw new Error("Lệnh GM không hợp lệ.");
     if (!development && (action === "potential" || action === "chest"))
@@ -250,7 +253,7 @@ var gameMaster = (function () {
       status.textContent = error.message;
     }
   };
-  if (typeof developerTools === "undefined") document.body.appendChild(toggle);
+  if (isStaff && typeof developerTools === "undefined") document.body.appendChild(toggle);
   document.body.appendChild(panel);
   const quickSaleButton = document.createElement("button");
   quickSaleButton.id = "quick-sale-toggle";
@@ -265,7 +268,7 @@ var gameMaster = (function () {
     document.body.classList.toggle("quick-sale", active);
   }
   setQuickSale(false);
-  if (typeof developerTools !== "undefined") { developerTools.register(toggle,"gm","GM · GameMaster"); developerTools.register(quickSaleButton,"sale","Bán nhanh", () => {
+  if (typeof developerTools !== "undefined") { if (isStaff) developerTools.register(toggle,"gm","GM · GameMaster"); developerTools.register(quickSaleButton,"sale","Bán nhanh", () => {
     if (!quickSale) return false;
     setQuickSale(false);
     if (typeof A5 === "function") A5();
