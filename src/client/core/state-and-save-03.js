@@ -106,6 +106,7 @@ var I3 = function () {
     xp: 0,
     // Starting silver for newly created characters only; existing saves override this.
     gold: 50000,
+    starterSilverV1: 1,
     attrPts: 0,
     attr: { str: 0, dex: 0, vit: 0, eng: 0 },
     knbV: 2,
@@ -225,8 +226,22 @@ var iP = function (A) {
   }
 };
 
+// One-time starter silver grant for legacy characters.
+// Only states with a real faction represent created characters.
+// Persist the marker together with the balance to avoid repeat grants.
+var grantStarterSilver = function (state) {
+  if (!state || !state.fac || state.starterSilverV1 === 1) return !1;
+  const current = Number(state.gold);
+  const validGold = Number.isFinite(current) ? Math.max(0, current) : 0;
+  state.gold = validGold + 50000;
+  state.starterSilverV1 = 1;
+  return !0;
+};
+
 var v8 = function (A) {
-  const n = Object.assign(I3(), A);
+  const migrated = Object.assign({}, A);
+  grantStarterSilver(migrated);
+  const n = Object.assign(I3(), migrated);
   if (
     ((n.attr = Object.assign({ str: 0, dex: 0, vit: 0, eng: 0 }, A.attr || {})),
     A.knbV === 1 && (n.knb = Math.floor((n.knb | 0) / 10)),
