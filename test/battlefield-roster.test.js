@@ -77,7 +77,30 @@ test('Fastify roster authenticates two SQLite accounts, validates slots, and rej
     assert.equal(b.json().teams.song.sims,98);
     assert.equal(b.json().teams.jin.sims,100);
     const reference = { matchId, participantId:player.id };
+    const bRef = { matchId, participantId:b.json().player.id };
+    assert.equal((await send('sync',{ ...reference, movement:{x:10,y:0,sequence:1} },first)).statusCode,400);
+    assert.equal((await send('sync',{ ...reference, movement:{x:1,y:0,sequence:1} },second)).statusCode,409);
+    await new Promise(resolve => setTimeout(resolve,100));
+    const moved = (await send('sync',{ ...reference, movement:{x:1,y:0,sequence:1} },first)).json();
+    const location = moved.actors.find(actor => actor.id === player.id);
+    assert.ok(location.x > 680 && location.x <= 717.5);
+    assert.deepEqual((await send('sync',bRef,second)).json().actors.find(actor => actor.id === player.id),location);
+    assert.deepEqual((await send('sync',{ ...reference, movement:{x:1,y:0,sequence:1} },first)).json().actors.find(actor => actor.id === player.id),location);
     assert.equal((await send('leave',reference,second)).statusCode,409);
     assert.equal((await send('leave',reference,first)).json().teams.song.sims,99);
   } finally { await app.close(); db.close(); }
+});
+
+test('Hoang Nguyen collision stops continued movement and the server caps diagonal distance', () => {
+  const { advanceBattlefieldPosition, battlefieldSpawn } = require('../src/server/battlefield-movement.ts');
+  const camp = battlefieldSpawn('song');
+  const diagonal = advanceBattlefieldPosition(camp, {x:1,y:1,sequence:1}, 5_000);
+  assert.ok(Math.hypot(diagonal.x-camp.x,diagonal.y-camp.y) <= 37.5 + 1e-8);
+  let location = camp;
+  for (let sequence=1;sequence<=40;sequence++) {
+    location = advanceBattlefieldPosition(location, {x:1,y:0,sequence}, 250);
+  }
+  assert.ok(location.x > camp.x && location.x < camp.x+40*37.5);
+  assert.deepEqual(advanceBattlefieldPosition(location,{x:1,y:0,sequence:41},250),location);
+  assert.equal(location.y,camp.y);
 });

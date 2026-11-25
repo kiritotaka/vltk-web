@@ -1,4 +1,4 @@
-import type { GridDefinition, NavigationGrid, Point, Size } from '../types';
+import type { GridDefinition, NavigationGrid, Point, Size } from '../types.js';
 
 export const clamp = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 

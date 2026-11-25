@@ -1,6 +1,7 @@
 ﻿import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { createBattlefieldRoster } from './battlefield-roster.ts';
+import { parseBattlefieldMove } from './battlefield-movement.ts';
 import { parseJsonBody, sendJson } from './http.ts';
 
 const characterSlots = new Set(['jxidle', 'jxidle_2', 'jxidle_3']);
@@ -37,17 +38,20 @@ export function registerBattlefieldRoster(
     if (!character || typeof character.fac !== 'string' || !character.fac || typeof character.name !== 'string' || !character.name.trim()) {
       throw Object.assign(new Error('Hãy lưu nhân vật trước khi tham gia Tống Kim.'), { status: 409 });
     }
-    return sendJson(reply, 200, roster.join(account.id, team));
+    return sendJson(reply, 200, roster.join(account.id, team, character.name.trim().slice(0, 48)));
   });
 
   for (const action of ['sync', 'leave'] as const) {
     app.post('/api/battlefield/roster/' + action, (request, reply) => {
       const account = requireUser(request);
-      const { matchId, participantId } = command(request);
+      const { matchId, participantId, movement } = command(request);
       if (typeof matchId !== 'string' || typeof participantId !== 'string' || matchId.length > 36 || participantId.length > 36) {
         throw Object.assign(new Error('Mã trận hoặc suất tham gia không hợp lệ.'), { status: 400 });
       }
-      return sendJson(reply, 200, roster[action](account.id, matchId, participantId));
+      const updated = action === 'sync'
+        ? roster.sync(account.id, matchId, participantId, parseBattlefieldMove(movement))
+        : roster.leave(account.id, matchId, participantId);
+      return sendJson(reply, 200, updated);
     });
   }
 }

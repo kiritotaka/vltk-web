@@ -1,4 +1,6 @@
 ﻿import { randomUUID } from 'node:crypto';
+import { advanceBattlefieldPosition, battlefieldSpawn } from './battlefield-movement.ts';
+import type { BattlefieldMove } from './battlefield-movement.ts';
 
 export const battlefieldTeams = ['song', 'jin'] as const;
 export type BattlefieldTeam = typeof battlefieldTeams[number];
@@ -12,6 +14,10 @@ type Participant = {
   team: BattlefieldTeam;
   seat: number;
   expiresAt: number;
+  name: string;
+  position: { x: number; y: number };
+  lastMoveAt: number;
+  sequence: number;
 };
 type Match = {
   id: string;
@@ -55,12 +61,13 @@ export function createBattlefieldRoster(now = Date.now) {
     return {
       matchId: current.id, startsAt: current.startsAt, endsAt: current.endsAt, serverTime: timestamp,
       finished: timestamp >= current.endsAt,
+      actors: [...current.players.values()].map(actor => ({ id: actor.id, team: actor.team, name: actor.name, ...actor.position })),
       teams: { song: side('song'), jin: side('jin') },
-      player: player ? { id: player.id, team: player.team, seat: player.seat } : null,
+      player: player ? { id: player.id, team: player.team, seat: player.seat, movementSequence: player.sequence } : null,
     };
   }
 
-  function join(accountId: string, team: BattlefieldTeam) {
+  function join(accountId: string, team: BattlefieldTeam, name = "") {
     const timestamp = now();
     if (team !== 'song' && team !== 'jin') throw Object.assign(new Error('Phe không hợp lệ.'), { status: 400 });
     if (!match || timestamp >= match.endsAt) {
@@ -78,7 +85,8 @@ export function createBattlefieldRoster(now = Date.now) {
     }
     const seat = match.seats[team].findIndex(value => value === undefined);
     if (seat < 0) conflict('Phe này đã đủ 100 người chơi.');
-    const player = { id: randomUUID(), seat, team, expiresAt: timestamp + reservationMs };
+    const player = { id: randomUUID(), seat, team, name, expiresAt: timestamp + reservationMs,
+      position: battlefieldSpawn(team), lastMoveAt: timestamp, sequence: 0 };
     match.players.set(accountId, player);
     match.seats[team][seat] = player;
     return snapshot(match, timestamp, player);
@@ -93,9 +101,16 @@ export function createBattlefieldRoster(now = Date.now) {
     return { current: match, player, timestamp };
   }
 
-  function sync(accountId: string, matchId: string, participantId: string) {
+  function sync(accountId: string, matchId: string, participantId: string, movement?: BattlefieldMove) {
     const { current, player, timestamp } = membership(accountId, matchId, participantId);
-    if (timestamp < current.endsAt) player.expiresAt = timestamp + reservationMs;
+    if (timestamp < current.endsAt) {
+      player.expiresAt = timestamp + reservationMs;
+      if (movement && movement.sequence > player.sequence) {
+        player.position = advanceBattlefieldPosition(player.position, movement, timestamp - player.lastMoveAt);
+        player.lastMoveAt = timestamp;
+        player.sequence = movement.sequence;
+      }
+    }
     return snapshot(current, timestamp, player);
   }
 
