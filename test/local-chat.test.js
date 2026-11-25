@@ -33,8 +33,8 @@ test('world chat enforces sessions, records messages and blocks impersonation', 
     const manifest = require('../src/client/modules.json');
     assert.ok(manifest.modules.some(module => module.file === 'local-chat.js'));
     const bundle = require('../tools/build-app.js').assemble().code;
-    assert.match(bundle, /Source: local-chat\\.js/);
-    assert.match(bundle, /Legacy forms already submit via yl\\(\\)/);
+    assert.match(bundle, /Source: local-chat\.js/);
+    assert.match(bundle, /Legacy forms already submit via yl\(\)/);
     assert.equal((await app.inject('/client/local-chat.js')).statusCode,404);
   } finally {await app.close();db.close();}
 });
