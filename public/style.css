@@ -5,6 +5,8 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;background:#050807;color:var(--text);font:14px/1.4 var(--font);overflow:hidden;user-select:none;-webkit-user-select:none}
+/* Suppress browser double-tap zoom without breaking taps, swipes or pinch-to-zoom. */
+html,body,#app,#battle,#arena,#csel{touch-action:manipulation}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 button[disabled]{opacity:.4;cursor:default}
 .hidden{display:none!important}
