@@ -22,7 +22,18 @@ function run(cmd,args,cwd=root,timeout=600000){
 }
 const git=(...args)=>run('git',args);
 const npm=(args,cwd=root)=>run(npmCmd,args,cwd);
-const clean=()=>git('status','--porcelain','--untracked-files=no')==='';
+// On Windows, Git can report tracked files as modified after LF/CRLF
+// conversion or stale index timestamps even when their content is identical.
+// Ask Git to check the content against HEAD; never ignore real edits/staging.
+function clean(){
+  const check=spawnSync('git',['diff','--quiet','HEAD','--'],{
+    cwd:root,windowsHide:true,timeout:60000
+  });
+  if(check.error) throw check.error;
+  if(check.status===0) return true;
+  if(check.status===1) return false;
+  throw Error('Unable to verify tracked changes: '+(check.stderr?.toString()||check.status));
+}
 const head=()=>git('rev-parse','HEAD');
 function canFastForward(from,to){
   return spawnSync('git',['merge-base','--is-ancestor',from,to],{cwd:root,windowsHide:true}).status===0;
