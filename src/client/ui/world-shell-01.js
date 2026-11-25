@@ -616,6 +616,9 @@ var kB = function () {
     return;
   }
   if (!document.body.classList.contains("u20") || !o || !o.fac) return;
+  // Keep the PC reward badge in sync as claimable rewards change during play.
+  const giftButton = m("#u20gift");
+  giftButton && giftButton.classList.toggle("on", typeof kh === "function" && kh());
   (pm(), bm(), PB());
   {
     const a = typeof h0 == "function" && h0(),
