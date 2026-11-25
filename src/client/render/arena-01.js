@@ -363,7 +363,7 @@ var af = function () {
 var Fa = function (A, n, t, e, a, i) {
   const left = e - A.ax * q3, top = a - A.ay * q3, width = A.w * q3, height = A.h * q3;
   if (typeof B0 !== 'undefined' && typeof M0 !== 'undefined' &&
-      (left + width < B0.x - 2 || top + height < B0.y - 2 || left > B0.x + M0.w + 2 || top > B0.y + M0.h + 2)) return !0;
+      (left + width < B0.x - 2 || top + height < B0.y - 2 || left > B0.x + worldViewWidth() + 2 || top > B0.y + worldViewHeight() + 2)) return !0;
   const r = bA(A.f);
   if (!r || !r.complete || !r.naturalWidth) return !1;
   const c = i
@@ -437,7 +437,7 @@ var OP = function (A) {
 var EP = function (A, n) {
   if (mapScene.drawGround(A, n)) return;
   if (!(n && n.complete && n.naturalWidth)) {
-    ((A.fillStyle = "#26301f"), A.fillRect(B0.x - 2, B0.y - 2, M0.w + 4, M0.h + 4));
+    ((A.fillStyle = "#26301f"), A.fillRect(B0.x - 2, B0.y - 2, worldViewWidth() + 4, worldViewHeight() + 4));
     return;
   }
   if (Z0.g) {
@@ -446,9 +446,9 @@ var EP = function (A, n) {
   }
   const t = cf,
     e = Math.floor(B0.x / t),
-    a = Math.floor((B0.x + M0.w) / t),
+    a = Math.floor((B0.x + worldViewWidth()) / t),
     i = Math.floor(B0.y / t),
-    r = Math.floor((B0.y + M0.h) / t);
+    r = Math.floor((B0.y + worldViewHeight()) / t);
   for (let c = e; c <= a; c++)
     for (let d = i; d <= r; d++) {
       const f = c & 1,
@@ -497,7 +497,7 @@ var SP = function (A) {
   ((A.globalAlpha = 1),
     (A.strokeStyle = "#fff6"),
     (A.lineWidth = 1),
-    A.strokeRect(t + B0.x * a, e + B0.y * a, Math.min(n, M0.w * a), Math.min(n, M0.h * a)));
+    A.strokeRect(t + B0.x * a, e + B0.y * a, Math.min(n, worldViewWidth() * a), Math.min(n, worldViewHeight() * a)));
   for (const f of l.ground)
     mA(f.it) && ((A.fillStyle = _0[f.it.r]), A.fillRect(t + f.x * a - 1, e + f.y * a - 1, 2, 2));
   for (const f of l.enemies) {
@@ -627,7 +627,7 @@ var Va = function (A, n, t, e, a, i, r, c = 1) {
   if (!f) return !1;
   const left = a - f.ax * r, top = i - f.ay * r, width = f.w * r, height = f.h * r;
   if (typeof B0 !== 'undefined' && typeof M0 !== 'undefined' &&
-      (left + width < B0.x - 2 || top + height < B0.y - 2 || left > B0.x + M0.w + 2 || top > B0.y + M0.h + 2)) return height;
+      (left + width < B0.x - 2 || top + height < B0.y - 2 || left > B0.x + worldViewWidth() + 2 || top > B0.y + worldViewHeight() + 2)) return height;
   const h = bA("img/a/" + f.f);
   if (!h.complete || !h.naturalWidth) return !1;
   let g = typeof speedSpriteFrame === 'function' ? speedSpriteFrame(n, e, f.n, f.ms) : Math.floor((e * 1e3) / f.ms);
