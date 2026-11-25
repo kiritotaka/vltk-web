@@ -2888,6 +2888,7 @@
         "statusInspector"
       ]
     },
+    {"file":"local-chat.js","symbols":[]},
     {"file":"core/asset-preload-01.js","symbols":[]}
   ]
 }
