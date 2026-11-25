@@ -17,8 +17,14 @@ var n_ = function (A) {
         t = null;
       }
     }
-    const e = t && t.state;
-    return e && e.fac ? e : null;
+    const e = t && t.ok && t.state;
+    if (!e || !e.fac) return null;
+    // Upgrade each stored character independently when the selection screen opens.
+    // The database sync adapter observes this write and persists balance + marker.
+    if (grantStarterSilver(e)) {
+      localStorage.setItem(h1(A), bn(e));
+    }
+    return e;
   } catch {
     return null;
   }
