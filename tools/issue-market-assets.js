@@ -3,10 +3,11 @@ const { openDatabase } = require('../src/server/database.ts');
 const { createMarket } = require('../src/server/market.ts');
 
 const [id, username, kind, value, arg, extra] = process.argv.slice(2);
-if (!id || !username || !value || !['item', 'gold', 'knb', 'character-item'].includes(kind) || extra ||
-    (kind === 'character-item' ? !/^\d+$/.test(arg || '') : arg !== undefined)) {
+if (!id || !username || !value || !['item', 'gold', 'knb', 'character-item', 'approve-transfer'].includes(kind) || extra ||
+    (['character-item', 'approve-transfer'].includes(kind) ? !/^\d+$/.test(arg || '') : arg !== undefined)) {
   console.error('Usage: node tools/issue-market-assets.js <issuance-id> <username> <item|gold|knb> <item-name|amount>');
   console.error('Usage: node tools/issue-market-assets.js <issuance-id> <username> character-item <slot> <gold-catalog-index>');
+  console.error('Usage: node tools/issue-market-assets.js <local-reference> <username> approve-transfer <slot> <item-uid>');
   process.exit(1);
 }
 
@@ -17,8 +18,14 @@ try {
   }
   const grant = kind === 'character-item' ? { character: value, catalogIndex: Number(arg) }
     : kind === 'item' ? { name: value } : { currency: kind, amount: Number(value) };
-  createMarket(db).issue(id, username.trim().toLowerCase(), grant);
-  console.log('Đã ghi nhận mã cấp tài sản Chợ ' + id + '.');
+  const market = createMarket(db);
+  if (kind === 'approve-transfer') {
+    const approved = market.approveTransfer(username.trim().toLowerCase(), value, Number(arg));
+    console.log('Đã xác nhận chuyển món: ' + approved);
+  } else {
+    market.issue(id, username.trim().toLowerCase(), grant);
+    console.log('Đã ghi nhận mã cấp tài sản Chợ ' + id + '.');
+  }
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

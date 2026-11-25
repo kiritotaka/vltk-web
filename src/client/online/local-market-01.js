@@ -50,13 +50,19 @@ var localMarket = (() => {
       pending = sessionStorage.getItem(key);
       if (command && pending) throw new Error('Hãy gửi lại yêu cầu trước khi bắt đầu giao dịch khác.');
       if (!pending && command) {
+        if (command.action === 'sell' && currentSlot() && typeof window !== 'undefined' && window.localGameStorage) {
+          if (typeof $ === 'function') $();
+          await window.localGameStorage.flush();
+          if (window.localGameStorage.pending) throw new Error('Hãy đợi Hành trang đồng bộ rồi thử lại.');
+        }
         pending = JSON.stringify({ ...command, requestId: crypto.randomUUID() });
         sessionStorage.setItem(key, pending);
       }
       if (!pending) return;
       status(root, 'Đang xử lý giao dịch…');
-      await api('transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pending });
+      const result = await api('transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pending });
       sessionStorage.removeItem(key);
+      if (result.reloadCharacter) { location.reload(); return; }
       inventoryCache = null;
       const inventoryPanel = m('#serverCharacterInventory');
       if (inventoryPanel) renderInventory(inventoryPanel);
@@ -113,7 +119,7 @@ var localMarket = (() => {
         root.querySelector('#mktNext').disabled = !catalog.hasMore;
       } else if (state.tab === 'sell') {
         for (const item of [...inventory.items, ...mine.items]) {
-          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + item.item.lvl : 'Kho Chợ');
+          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + (item.item.lvl || '—') : 'Kho Chợ');
           const price = document.createElement('input');
           price.type = 'number';
           price.min = '1';
@@ -165,7 +171,7 @@ var localMarket = (() => {
       if (!panel.isConnected || currentSlot() !== slot) return;
       panel.replaceChildren();
       if (!items.length) { panel.textContent = 'Chưa có vật phẩm do máy chủ quản lý.'; return; }
-      for (const item of items) panel.append(row(item.name, 'Cấp ' + item.item.lvl));
+      for (const item of items) if (!item.legacy) panel.append(row(item.name, 'Cấp ' + item.item.lvl));
       panel.append(button('Bày bán', () => open('sell')));
     }).catch(error => { if (panel.isConnected) panel.textContent = error.message; });
   }

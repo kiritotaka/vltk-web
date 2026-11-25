@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isGameKey, snapshot } from './database.ts';
 import { assertRebirthDisabled } from './rebirth.ts';
+import { legacyMarketInventory } from './market-legacy-inventory.ts';
 import { parseJsonBody, sendJson } from './http.ts';
 import type { StorageSnapshot, StorageBatch, StorageOperation } from './types.ts';
 
@@ -26,6 +27,7 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
   if (!(db.prepare('PRAGMA table_info(accounts)').all() as Array<{ name: string }>).some(row => row.name === 'role')) {
     db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','gm','admin'))");
   }
+  const transfer = legacyMarketInventory(db);
   const attempts = new Map<string, { count: number; until: number }>();
   const getUser = (request: FastifyRequest) => db.prepare(`SELECT a.id,a.username,a.role FROM accounts a
     JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires>?`).get(hashToken(tokenFrom(request)), Date.now()) as { id: string; username: string; role: 'user' | 'gm' | 'admin' } | undefined;
@@ -106,7 +108,7 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
         assertRebirthDisabled(batch!.operations, read(request).entries);
         const put = db.prepare('INSERT INTO account_storage VALUES (?,?,?) ON CONFLICT(account_id,key) DO UPDATE SET value=excluded.value');
         const remove = db.prepare('DELETE FROM account_storage WHERE account_id=? AND key=?');
-        for (const op of batch!.operations) op.value === null ? remove.run(user.id, op.key) : put.run(user.id, op.key, op.value);
+        for (const op of batch!.operations) op.value === null ? remove.run(user.id, op.key) : put.run(user.id, op.key, transfer.sanitize(user.id, op.key, op.value));
         db.prepare('INSERT INTO account_batches VALUES (?,?)').run(user.id, batch!.id);
         db.prepare('UPDATE accounts SET initialized=1 WHERE id=?').run(user.id);
       }

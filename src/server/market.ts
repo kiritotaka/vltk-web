@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseJsonBody, sendJson } from './http.ts';
+import { legacyMarketInventory } from './market-legacy-inventory.ts';
 import { characterInventory, marketCharacterSlot, type CharacterSlot } from './market-character-inventory.ts';
 
 const MAX_MONEY = Number.MAX_SAFE_INTEGER;
@@ -99,6 +100,7 @@ export function createMarket(db: DatabaseSync) {
   `);
 
   const characters = characterInventory(db);
+  const legacy = legacyMarketInventory(db);
 
   function transaction<T>(write: () => T): T {
     db.exec('BEGIN IMMEDIATE');
@@ -137,11 +139,20 @@ export function createMarket(db: DatabaseSync) {
         .get(owner, requestId);
       if (receipt) {
         if (receipt.command !== signature) fail(409, 'Mã yêu cầu đã được dùng cho thao tác khác.');
-        return JSON.parse(receipt.result as string) as { listingId: string };
+        return JSON.parse(receipt.result as string) as { listingId: string; reloadCharacter?: boolean };
       }
 
       let listingId = data.target;
+      let reloadCharacter = false;
       if (data.action === 'sell') {
+        const approval = data.character && legacy.check(owner, data.character, data.target);
+        if (data.character && approval && !approval.consumed) {
+          const item = legacy.take(owner, data.character, approval);
+          db.prepare("INSERT INTO market_items VALUES (?,?,?,?,'available')")
+            .run(approval.id, owner, item.name, item.name.normalize('NFC').toLowerCase());
+          characters.add(approval.id, owner, data.character, item.payload);
+          reloadCharacter = true;
+        }
         characters.requireSource(data.target, data.character);
         if (data.character) characters.checkSlot(owner, data.character);
         moveItem(data.target, owner, 'available', owner, 'escrow');
@@ -178,7 +189,7 @@ export function createMarket(db: DatabaseSync) {
           }
         }
       }
-      const result = { listingId };
+      const result = { listingId, ...(reloadCharacter ? { reloadCharacter } : {}) };
       db.prepare('INSERT INTO market_receipts VALUES (?,?,?,?)').run(owner, requestId, signature, JSON.stringify(result));
       return result;
     });
@@ -239,7 +250,17 @@ export function createMarket(db: DatabaseSync) {
     return { accountId: owner, wallet, items, orders };
   }
 
-  return { browse, inventory, execute, issue, characterItems: characters.available };
+  function approveTransfer(username: string, slot: CharacterSlot, uid: number) {
+    return transaction(() => {
+      const owner = db.prepare('SELECT id FROM accounts WHERE username=?').get(username)?.id as string | undefined;
+      if (!owner) fail(404, 'Không tìm thấy tài khoản.');
+      return legacy.approve(owner, marketCharacterSlot(slot), uid);
+    });
+  }
+  const characterItems = (owner: string, slot: CharacterSlot) =>
+    [...characters.available(owner, slot), ...legacy.available(owner, slot)];
+
+  return { browse, inventory, execute, issue, characterItems, approveTransfer };
 }
 
 export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }) {
