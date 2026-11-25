@@ -145,6 +145,22 @@ var Cd = function () {
   !l.battlefield && !Ga() && l.enemies.length && l.enemies.every((A) => A.dead) && ((l.enemies = []), lD());
 };
 
+// One roll per eligible kill. Map bands use the encounter's lower level.
+var worldKnbDropChance = (mapLevel, elite = false) => {
+  if (!Number.isFinite(mapLevel) || mapLevel < 80 || mapLevel >= 200) return 0;
+  return (10 + 5 * Math.floor((mapLevel - 80) / 10) + (elite ? 10 : 0)) / 10000;
+};
+
+var dropWorldKnb = (enemy) => {
+  if (enemy.cls === "boss" || !Ga()) return;
+  const chance = worldKnbDropChance(AA(Math.min(o.stage, d0))?.lo, enemy.cls === "elite");
+  if (chance > 0 && Math.random() < chance) {
+    Dr("monster", 1);
+    C('💰 Nhặt được <b style="color:#ffd700">1 Kim Nguyên Bảo</b>');
+    $();
+  }
+};
+
 var cD = function (A) {
   if (l.battlefield || A.battlefieldMonster) return;
   (l.kills++, (o.totalKills = (o.totalKills || 0) + 1), (l.stall = 0), YD());
@@ -181,6 +197,7 @@ var cD = function (A) {
     Fb(A),
     Cy(A),
     p7(A));
+  dropWorldKnb(A);
 };
 
 var d8 = function (A) {
