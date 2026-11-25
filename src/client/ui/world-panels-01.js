@@ -475,7 +475,7 @@ var SB = function () {
       `<button data-qt="${c}" class="${eA === c ? "on" : ""}">${d}${c === "boat" && Vs() ? " ●" : ""}</button>`,
     i = document.createElement("div");
   ((i.className = "u2tree"),
-    (i.innerHTML = `<div class="u2tg">⊟ Nhiệm vụ</div>${VB.map(a).join("")}<div class="u2tg">⊟ Phó bản · Hoạt động</div>${Hm.map(([c, d]) => `<button data-act="${c}">${d}${c === "boat" && Vs() ? " ●" : ""}</button>`).join("")}<button type="button" id="u2tongkim">Tống Kim</button><div class="u2tg">⊟ Khác</div><button id="u2gift">Phần thưởng</button>`),
+    (i.innerHTML = `<div class="u2tg">⊟ Nhiệm vụ</div>${VB.map(a).join("")}<div class="u2tg">⊟ Phó bản · Hoạt động</div>${Hm.map(([c, d]) => `<button data-act="${c}">${d}${c === "boat" && Vs() ? " ●" : ""}</button>`).join("")}<div class="u2tg">⊟ Khác</div><button id="u2gift">Phần thưởng</button>`),
     (n.innerHTML = ""));
   const r = document.createElement("div");
   ((r.className = "u2quest"),
@@ -493,10 +493,6 @@ var SB = function () {
         }),
     ),
     i.querySelectorAll("[data-act]").forEach((c) => (c.onclick = () => N1(c.dataset.act))),
-    (i.querySelector("#u2tongkim").onclick = () => {
-      if (typeof arenaSimulator !== "undefined" && arenaSimulator) arenaSimulator.openSettings();
-      else k("Chưa mở được bảng Tống Kim.");
-    }),
     (m("#u2gift").onclick = () => Ce(!0)),
     (m("#u2trkB").onclick = () => {
       ((oa = !oa), (o.u20trk = oa), $(), m2(), pm());

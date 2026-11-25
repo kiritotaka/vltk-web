@@ -161,8 +161,8 @@ test('one damage can be disabled for living monsters and future respawns, and su
   restored.combatSandbox.setOneDamage(true);assert.ok(restored.l.enemies.every(e=>e.dmg===1));
 });
 
-function simulatorGame(entries, arena=true, nativeMonsters=false, options) {
-  const s=game(arena,entries), fields=s.fields;
+function simulatorGame(entries, arena=true, nativeMonsters=false, options, role) {
+  const s=game(arena,entries,role), fields=s.fields;
   s.Math=Object.create(Math);s.Math.random=()=>.5;
   const element=()=>({value:'',checked:false,hidden:false,style:{},attributes:{},listeners:{},
     setAttribute(key,value){this.attributes[key]=value;},addEventListener(key,fn){this.listeners[key]=fn;},
@@ -268,6 +268,29 @@ test('production initializes Tống Kim without Arena Test profiles or SIM tools
   assert.equal(s.arenaSimulator.events.length,0);
   s.arenaSimulator.openSettings();
   assert.equal(s.simNodes.find(node=>node.id==='battlefield-panel').hidden,false);
+});
+
+test('Tống Kim Chiêu Mộ Sứ limits match configuration to GM and admin roles', () => {
+  for (const role of ['user', 'gm', 'admin']) {
+    const s = battlefieldGame(false, false, undefined, role);
+    const panel = s.simNodes.find(node => node.id === 'battlefield-panel');
+    s.arenaSimulator.openSettings();
+    assert.equal(panel.hidden, false);
+    assert.match(panel.innerHTML, /id="battlefield-start"/);
+    assert.match(panel.innerHTML, /id="battlefield-reset"/);
+    assert.match(panel.innerHTML, /id="battlefield-ranking"/);
+    for (const id of ['tab-match', 'tab-army', 'tab-soldiers', 'tab-behaviour', 'save-settings', 'update-monsters', 'add']) {
+      assert.equal(panel.innerHTML.includes('id="battlefield-' + id + '"'), role !== 'user', role + ': ' + id);
+    }
+    if (role === 'user') {
+      s.fields.get('#battlefield-player').value = 'jin';
+      s.fields.get('#battlefield-start').onclick();
+      assert.equal(s.arenaSimulator.battlefield.running, true);
+      assert.equal(s.arenaSimulator.battlefield.state.team, 'jin');
+      s.fields.get('#battlefield-reset').onclick();
+      assert.equal(s.arenaSimulator.battlefield.active, false);
+    }
+  }
 });
 
 test('production can initialize before the player selects a faction or has combat stats',()=>{
@@ -895,8 +918,8 @@ test('SIM cold PK leaves player free to move and retains its movement destinatio
  assert.equal(s.Y.target,destination);assert.equal(s.l.moveTo,destination);
 });
 
-function battlefieldGame(arena=true, nativeMonsters=false, options) {
-  const s=simulatorGame(undefined,arena,nativeMonsters,options);
+function battlefieldGame(arena=true, nativeMonsters=false, options, role) {
+  const s=simulatorGame(undefined,arena,nativeMonsters,options,role);
   if (!arena) s.o=Object.assign(s.I3(),{name:'Production hero',fac:'wudang',lvl:90,main:'basic',ctrl:'manual'});
   const catalog={};catalog.window=catalog;
   vm.runInNewContext(fs.readFileSync(path.join(ROOT,'public/data.js'),'utf8'),catalog);

@@ -1316,7 +1316,9 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     return actor ? inspection.html(actor,tab) : null;
   });
   const resultDialog = mountBattlefieldResult(() => battlefield!.acknowledgeResult());
-  const battlePanel=mountBattlefieldPanel(battlefield,Object.values(I),D,warRewards,supplies,{configureSoldiers: (configuration,applyNow=false) => {
+  const role = (window as Window & { localGameAuth?: { user?: { role?: string } } }).localGameAuth?.user?.role;
+  const canConfigureBattlefield = role === "admin" || role === "gm";
+  const battlePanel=mountBattlefieldPanel(battlefield,Object.values(I),D,warRewards,supplies,{canConfigure: canConfigureBattlefield, configureSoldiers: (configuration,applyNow=false) => {
       const available = soldierSkillOptions(T,Object.values(I),UA);
       for (const settings of Object.values(configuration)) for (const id of settings.skills || []) {
         if (!available.some(skill => skill.id === id)) throw new Error('Chỉ chọn chiêu tấn công cấp 50–70 trong catalog.');
