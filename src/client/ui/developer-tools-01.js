@@ -18,7 +18,7 @@ var developerTools = (function () {
   }
   function register(button, kind, label, onClose) {
     const role = window.localGameAuth?.user?.role || 'user';
-    if (kind !== 'sale' && role !== 'gm' && role !== 'admin') return;
+    if (role !== 'gm' && role !== 'admin') return;
     if (kind === 'sale') closeSale = onClose;
     if (!toolbar) {
       toolbar = document.createElement('nav'); toolbar.id = 'dev-tools'; toolbar.setAttribute('aria-label','Công cụ thử nghiệm');
