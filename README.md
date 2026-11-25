@@ -14,6 +14,31 @@ npm start
 `npm run dev` bật môi trường development và Node watch. `PORT=3001 npm start` đổi port.
 `DB_PATH=/absolute/path/test.sqlite npm start` dùng database riêng.
 
+## Tự cập nhật trên Windows (Cloudflare Tunnel)
+
+Dùng **một** cửa sổ PowerShell cho Game Server:
+
+```powershell
+cd "D:\\inter\\volam1\\jxweb\\Project\\vltk-web"
+git pull origin main
+npm run serve:auto
+```
+
+`serve:auto` là trình quản lý server **production**; không chạy đồng thời với `npm start` hoặc `npm run dev` trên cùng cổng. Chương trình build code hiện tại, chạy Node.js, kiểm tra `origin/main` mỗi 30 giây, và preflight commit mới trong một Git worktree tạm trước khi cập nhật. Nếu preflight lỗi, server đang chạy được giữ nguyên. Khi cập nhật hợp lệ, server đóng Fastify/SQLite, cập nhật code và khởi động lại. Trình duyệt đã hỗ trợ phát hiện phiên server mới và tự reload sau khi đẩy dữ liệu lưu lên máy chủ.
+
+Cửa sổ PowerShell khác chạy Cloudflare Tunnel (độc lập):
+
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+- Cần Node.js >=24, Git, PowerShell và truy cập Internet; npm/npx phải chạy được. Lần đầu kiểm tra bản update có thể tải dependencies trong worktree tạm.
+- Tự triển khai **chỉ khi local đang ở nhánh `main` và không có thay đổi tracked**. Nếu có thay đổi chưa commit, sẽ bỏ qua cập nhật để bảo vệ code trên máy.
+- Không tự reset hoặc di chuyển `database/game.sqlite` (file ignored). Tạo bản backup SQLite định kỳ; auto deploy không thay thế backup.
+- Có thời gian gián đoạn ngắn khi restart. Trong khi bản mới đang build, bản cũ vẫn chạy; nếu build không đạt sẽ không triển khai.
+- Ctrl+C trong cửa sổ `serve:auto` dừng trình quản lý và Game Server. Để cập nhật thủ công, dừng `serve:auto` trước.
+- **Đổi qua Codex PC:** xem `docs/CODEX_HANDOFF.md` để tiếp tục dự án từ cùng repo, không cần copy mọi quyết định thủ công.
+
 ## Vấn đề đã xác nhận, tạm hoãn sửa
 
 **2026-10-19 — Điểm tiềm năng Nội công chưa tăng sát thương phép ở tất cả môn phái**,
