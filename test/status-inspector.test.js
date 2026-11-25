@@ -8,7 +8,7 @@ function game(){
  function element(){return {hidden:false,style:{},attributes:{},textContent:'',_html:'',value:'auto',scrollTop:0,options:[{value:'auto'}],setAttribute(k,v){this.attributes[k]=v;},focus(){this.focused=true;},remove(){},
   set innerHTML(html){this._html=html;this.options=[...html.matchAll(/<option value="([^"]+)"/g)].map(m=>({value:m[1]}));},get innerHTML(){return this._html;},
   querySelector(selector){if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);},querySelectorAll(){return [];}};}
- const s={Math,Date,Intl,Set,Map,WeakMap,setInterval:fn=>timers.push(fn),clearInterval(){},
+ const s={Math,Date,Intl,Set,Map,WeakMap,window:{localGameAuth:{user:{role:'admin'}}},setInterval:fn=>timers.push(fn),clearInterval(){},
  document:{createElement:element,head:{appendChild(){}},body:{appendChild(){}},addEventListener:(name,fn)=>listeners[name]=fn},
  o:{name:'Kiểm thử',fac:'wudang',lvl:100,attr:{str:10,dex:10,vit:10,eng:100},sk:{1:2,2:1},eq:{},inv:[],main:1,mainLock:true,potUsed:0},
  l:{enemies:[],P:{},life:100,mana:100},m0:1,
@@ -121,4 +121,14 @@ test('developer status inspector launcher remains hidden during normal gameplay'
   assert.match(source, /toggle\.id = 'status-log-toggle'/);
   assert.match(source, /toggle\.hidden = true;/);
   assert.doesNotMatch(source, /toggle\.hidden = !playing;/);
+});
+
+test('status inspector stays hidden for regular player and visible for GM', () => {
+ const player=game(),p=inspector(player);
+ player.window.localGameAuth.user.role='user';
+ p.refresh();
+ assert.equal(p.toggle.hidden,true);
+ player.window.localGameAuth.user.role='gm';
+ p.refresh();
+ assert.equal(p.toggle.hidden,false);
 });
