@@ -54,8 +54,12 @@ var kh = function () {
 };
 
 var tt = function () {
+  const claimable = kh();
   const A = m("#giftBtn");
-  A && A.classList.toggle("on", kh());
+  A && A.classList.toggle("on", claimable);
+  // The round "Phần thưởng" button uses the same claimable-reward state.
+  const roundButton = m("#u20gift");
+  roundButton && roundButton.classList.toggle("on", claimable);
 };
 
 var et = function () {
