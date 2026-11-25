@@ -16,12 +16,12 @@ function declaration(file, name) {
     .body.find((n) => n.type === "VariableDeclaration" && n.declarations[0].id.name === name);
   return code.slice(node.start, node.end);
 }
-function game(development = true) {
+function game(development = true, role = 'admin') {
   const nodes = [];
   const listeners = {};
   const element = () => ({ setAttribute() {}, hidden: false });
   const s = {
-    window: { localGameConfig: { development } },
+    window: { localGameConfig: { development }, localGameAuth: { user: { username:'kiritotaka', role } } },
     document: {
       createElement: element,
       head: { appendChild() {} },
@@ -406,4 +406,20 @@ test('GM adds 10,000 accumulated military merit to the current character and sav
  s.gameMaster.grant('warMerit');assert.equal(s.o.mats.misc.tk_merit,20000);assert.doesNotMatch(panel.innerHTML,/20.000/);
  const first=s.o;s.o={fac:'shaolin',mats:{misc:{tk_merit:300}}};s.gameMaster.grant('warMerit');assert.equal(s.o.mats.misc.tk_merit,10300);assert.equal(first.mats.misc.tk_merit,20000);
  s.o.mats.misc.tk_merit=Number.MAX_SAFE_INTEGER;assert.throws(()=>s.gameMaster.grant('warMerit'),/giới hạn/);assert.equal(s.o.mats.misc.tk_merit,Number.MAX_SAFE_INTEGER);
+});
+
+test("normal user cannot see or execute GameMaster commands", () => {
+  const s = game(false, "user");
+  assert.ok(!s.nodes.some(node => node.id === "gm-toggle"));
+  assert.throws(() => s.gameMaster.grant("gold"), /Chỉ tài khoản GM \/ ADMIN/);
+  assert.throws(() => s.gameMaster.grant("xp"), /Chỉ tài khoản GM \/ ADMIN/);
+  assert.equal(s.o.gold, 7);
+  assert.equal(s.saved.length, 0);
+});
+
+test("GM account receives GameMaster actions without enabling development mode", () => {
+  const s = game(false, "gm");
+  assert.ok(s.nodes.some(node => node.id === "gm-toggle"));
+  s.gameMaster.grant("gold");
+  assert.equal(s.o.gold, 1_000_000_000_007);
 });
