@@ -10,11 +10,16 @@ var zP = () =>
 
 var $8 = () => (document.body.classList.contains("mob") ? jP : 1);
 
+// World-only camera zoom. HUD and DOM panels stay at their original size.
+var gameWorldZoom = 0.8;
+var worldViewWidth = () => M0.w / gameWorldZoom;
+var worldViewHeight = () => M0.h / gameWorldZoom;
+
 var B0 = { x: 0, y: 0 };
 
 var rf = () => [
-  E(v.x - M0.w / 2, 0, Math.max(0, O0.w - M0.w)),
-  E(v.y - M0.h * 0.55, 0, Math.max(0, O0.h - M0.h)),
+  E(v.x - worldViewWidth() / 2, 0, Math.max(0, O0.w - worldViewWidth())),
+  E(v.y - worldViewHeight() * 0.55, 0, Math.max(0, O0.h - worldViewHeight())),
 ];
 
 var cf = 1536;
@@ -22,7 +27,7 @@ var cf = 1536;
 var dA = { s: 92, m: 8, top: 62 };
 
 var cM = (s, A, n = 120) =>
-  s > B0.x - n && s < B0.x + M0.w + n && A > B0.y - n && A < B0.y + M0.h + n;
+  s > B0.x - n && s < B0.x + worldViewWidth() + n && A > B0.y - n && A < B0.y + worldViewHeight() + n;
 
 var lf = { cold: "rgb(250,255,0)", stun: "rgb(50,30,40)", poison: "rgb(50,128,200)" };
 
