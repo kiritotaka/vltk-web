@@ -178,6 +178,46 @@
     if (loading && window.localGameAssets) await loading.preload(window.localGameAssets);
     loading?.finish();
     status.hidden = queue.length === 0;
+
+    // A restarted server may be running newer JS/CSS/API code while this tab
+    // still holds the old game in memory. Compare the server startup token.
+    // Only reload after the character is saved and the durable outbox is empty.
+    const initialInstanceId = config.instanceId;
+    let checkingVersion = false, reloadStarted = false;
+    async function checkServerVersion() {
+      if (checkingVersion || reloadStarted || document.hidden || !initialInstanceId) return;
+      checkingVersion = true;
+      try {
+        const current = await request('/api/config');
+        if (!current.instanceId || current.instanceId === initialInstanceId) return;
+        try {
+          window.dispatchEvent(new Event('volam:save-before-reload'));
+        } catch (error) {
+          console.warn('Unable to request game save before reload', error);
+          return;
+        }
+        await flush();
+        if (queue.length) {
+          status.hidden = false;
+          status.textContent = 'Có bản cập nhật mới. Đang đợi đồng bộ nhân vật trước khi tải lại…';
+          return;
+        }
+        reloadStarted = true;
+        status.hidden = false;
+        status.textContent = 'Máy chủ đã cập nhật. Đang tải phiên bản mới…';
+        location.reload();
+      } catch {
+        // The server may be restarting or Cloudflare Tunnel temporarily offline.
+        // Keep playing locally and retry; never reload on a network failure.
+      } finally {
+        checkingVersion = false;
+      }
+    }
+    setInterval(checkServerVersion, 15000);
+    window.addEventListener('online', checkServerVersion);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void checkServerVersion();
+    });
   } catch (error) {
     status.hidden = false; status.textContent = `Không thể mở game: ${error.message} — tải lại trang để thử lại.`;
     loading?.failed(error);
