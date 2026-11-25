@@ -19,7 +19,7 @@ function loadDeclaration(s,file,name) {
   const node=acorn.parse(text,{ecmaVersion:'latest'}).body.find(n=>n.type==='VariableDeclaration'&&n.declarations.some(d=>d.id.name===name));
   vm.runInContext(text.slice(node.start,node.end),s);
 }
-function game(enabled=true, entries=new Map()) {
+function game(enabled=true, entries=new Map(), role='admin') {
   const catalog={};catalog.window=catalog;
   vm.runInNewContext(fs.readFileSync(path.join(ROOT,'public/data.js'),'utf8'),catalog);
   catalog.window.JFX = {m:{},c:{},f:{}};
@@ -30,7 +30,7 @@ function game(enabled=true, entries=new Map()) {
   const fields=new Map();
   function field(id){if(!fields.has(id))fields.set(id,{value:'',checked:false,options:[],classList:{toggle(){}}});return fields.get(id);}
   const panel={querySelector:field,querySelectorAll:()=>[],appendChild(){},id:'',innerHTML:''};
-  const s={window:{localGameConfig:{development:enabled,combatSandbox:enabled}},
+  const s={window:{localGameConfig:{development:enabled,combatSandbox:enabled},localGameAuth:{user:{username:'kiritotaka',role}}},
     document:{createElement:tag=>tag==='details'?panel:{},head:{appendChild(){}},body:{appendChild(){}}},
     localStorage:{getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v)},
     Math,JSON,Date,b8:1,mP:'test-save-salt', z2:5, Zt:{emei:1,cuiyan:1},
@@ -1626,4 +1626,9 @@ test('arena restores the equipped Thien Tu weapon across profile switches and re
   assert.deepEqual(JSON.parse(JSON.stringify(saved.state.eq.weapon)), weapon);
   reloaded.combatSandbox.selectSkill(skill);
   assert.equal(reloaded.o.eq.weapon.n, 'Training weapon', 'explicit skill selection still provisions its training weapon');
+});
+
+test('normal users cannot activate development combat sandbox',()=>{
+  const s=game(true,new Map(),'user');
+  assert.equal(s.combatSandbox,null);
 });
