@@ -60,7 +60,8 @@ var gameMaster = (function () {
   };
   const role = window.localGameAuth?.user?.role || 'user';
   const isStaff = role === 'gm' || role === 'admin';
-  const development = isStaff && !!window.localGameConfig?.development;
+  // Staff permissions are account-based, not tied to NODE_ENV.
+  const development = isStaff;
 
   let showSkillRange = false;
   let showDamageAreas = false;
