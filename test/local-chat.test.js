@@ -28,6 +28,13 @@ test('world chat enforces sessions, records messages and blocks impersonation', 
     assert.equal((await post(bob,{body:'x'.repeat(181)})).statusCode,400);
     const send = await post(bob,{body:'Hello!'});
     assert.equal(send.statusCode,201,send.body);
-    assert.equal((await app.inject('/client/local-chat.js')).statusCode,200);
+    // Chat must run in the game's shared IIFE, not in an isolated script:
+    // the legacy chat UI keeps H, yl and ex as closure-local variables.
+    const manifest = require('../src/client/modules.json');
+    assert.ok(manifest.modules.some(module => module.file === 'local-chat.js'));
+    const bundle = require('../tools/build-app.js').assemble().code;
+    assert.match(bundle, /Source: local-chat\\.js/);
+    assert.match(bundle, /Legacy forms already submit via yl\\(\\)/);
+    assert.equal((await app.inject('/client/local-chat.js')).statusCode,404);
   } finally {await app.close();db.close();}
 });
