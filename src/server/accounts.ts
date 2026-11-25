@@ -22,9 +22,13 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
   CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS account_storage (account_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(account_id,key));
   CREATE TABLE IF NOT EXISTS account_batches (account_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account_id,id));`);
+  // Existing accounts receive the least-privilege role during migration.
+  if (!(db.prepare('PRAGMA table_info(accounts)').all() as Array<{ name: string }>).some(row => row.name === 'role')) {
+    db.exec("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','gm','admin'))");
+  }
   const attempts = new Map<string, { count: number; until: number }>();
-  const getUser = (request: FastifyRequest) => db.prepare(`SELECT a.id,a.username FROM accounts a
-    JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires>?`).get(hashToken(tokenFrom(request)), Date.now()) as { id: string; username: string } | undefined;
+  const getUser = (request: FastifyRequest) => db.prepare(`SELECT a.id,a.username,a.role FROM accounts a
+    JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires>?`).get(hashToken(tokenFrom(request)), Date.now()) as { id: string; username: string; role: 'user' | 'gm' | 'admin' } | undefined;
   const requireUser = (request: FastifyRequest) => getUser(request) || fail(401, 'Vui lòng đăng nhập.');
   const setSession = (request: FastifyRequest, reply: FastifyReply, id: string) => {
     const token = randomBytes(32).toString('hex');
@@ -56,10 +60,10 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
         const first = !db.prepare('SELECT 1 FROM accounts LIMIT 1').get();
         const legacy = first ? snapshot(db) : null;
         const id = randomUUID();
-        db.prepare('INSERT INTO accounts VALUES (?,?,?,?,?,?)').run(id, username, salt, digest.toString('hex'), randomUUID(), legacy && !legacy.initialized ? 0 : 1);
+        db.prepare('INSERT INTO accounts (id,username,salt,password_hash,generation,initialized,role) VALUES (?,?,?,?,?,?,?)').run(id, username, salt, digest.toString('hex'), randomUUID(), legacy && !legacy.initialized ? 0 : 1, 'user');
         const insert = db.prepare('INSERT INTO account_storage VALUES (?,?,?)');
         for (const [name, value] of Object.entries(legacy?.entries || {})) insert.run(id, name, value);
-        account = { id, username };
+        account = { id, username, role: 'user' };
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     } else {
@@ -70,7 +74,7 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
         fail(401, 'Username hoặc password không đúng.');
     }
     setSession(request, reply, account!.id as string);
-    return sendJson(reply, 200, { user: { id: account!.id, username } });
+    return sendJson(reply, 200, { user: { id: account!.id, username, role: account!.role } });
   });
   app.post('/api/auth/logout', (request, reply) => {
     db.prepare('DELETE FROM account_sessions WHERE token_hash=?').run(hashToken(tokenFrom(request)));
