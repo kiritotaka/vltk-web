@@ -398,7 +398,3 @@ body:has(#dev-tools) #combat-sandbox>button{margin:0 12px 12px}
 .quartermaster-actions .btn:first-child{flex:1}
 .quartermaster-actions .btn:last-child{flex:0 0 56px}
 
-/* Local marketplace entry: desktop navigation and a compact mobile shortcut. */
-#tabs .market-tab{display:inline-flex;align-items:center;justify-content:center;min-width:50px;padding:4px 9px;color:#f2dbac;text-decoration:none;background:#273c2b;border:1px solid #8c7040;border-radius:4px;font-size:12px}
-#marketMobile{display:none}
-body.u20 #marketMobile{display:flex;position:fixed;left:8px;top:38%;z-index:45;align-items:center;justify-content:center;width:48px;height:36px;color:#ffe1a8;text-decoration:none;background:#30291bcc;border:1px solid #b5914c;border-radius:7px;font:700 12px sans-serif;touch-action:manipulation}
