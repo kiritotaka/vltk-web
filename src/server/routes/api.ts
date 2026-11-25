@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { registerAccounts } from '../accounts.ts';
-import { registerMarket } from '../market.ts';
 import { registerLocalChat } from '../chat.ts';
 import { parseJsonBody, sendJson } from '../http.ts';
 import type { ServerServices } from '../types.ts';
@@ -9,7 +8,6 @@ import type { ServerServices } from '../types.ts';
 export function registerApiRoutes(app: FastifyInstance, services: ServerServices): void {
   const { db, assets, development, combatSandbox } = services;
   const storage = registerAccounts(app, db);
-  registerMarket(app, db);
   registerLocalChat(app, db, storage.requireUser);
   app.get('/api/config', (_request, reply) => sendJson(reply, 200,
     { development, ...(development && combatSandbox ? { combatSandbox: true } : {}) }));
