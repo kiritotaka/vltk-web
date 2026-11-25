@@ -4,7 +4,6 @@ import { drawWarTrap, triggerWarTrap, preloadWarTrap } from './war-trap-effects'
 import type { TrapEffectCatalog } from './war-trap-effects';
 import { addAccumulatedMerit } from '../gameplay/quartermaster/model';
 import { mountSoldierCountdown } from './soldier-countdown';
-import { mountRespawnCountdown } from './respawn-countdown';
 import { mountMarshalNotice } from './marshal-notice';
 import { mountBattlefieldResult } from './battlefield-result';
 import { createBattlefieldPause } from './battlefield-pause';
@@ -559,7 +558,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
   const arenaTick = sandbox.tick;
   sandbox.tick = function (dt) { arenaTick(dt); tick(dt); };
   function tick(dt: number) {
-    if (battlefield?.running && battlefield.state.remaining <= dt) for (const unit of roadMonsters.actors) if (unit.dead || unit.hp <= 0) warRewards.killed(unit);
+    if (battlefield?.running && battlefield.remaining <= dt) for (const unit of roadMonsters.actors) if (unit.dead || unit.hp <= 0) warRewards.killed(unit);
     marshalNotice.tick(dt, !!battlefield?.running);
     battlefield?.tick(dt);
     updateWarNpcs();
@@ -570,7 +569,6 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     if (battlefield) {
       const state = battlefield.state;
       soldierCountdown.render(battlefield.running, state.deployment.soldierAppearanceSeconds - state.elapsed, state.monsters.count);
-      respawnCountdown.render(battlefield.running, state.playerRespawn);
     }
     const bodies = battlefield?.active ? [...actors, ...roadMonsters.actors, { ...battlefieldHero, hp: battlefieldWorld.life, dead: !battlefieldWorld.life || battlefieldWorld.deadT > 0 }] : actors;
     crowd.begin(bodies, dt);
@@ -620,13 +618,17 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     if (stunned) { actor.moving = false; return; }
     actor.cooldown = Math.max(0, actor.cooldown - dt);
     if (actorActionLocked(actor)) { actor.moving = false; return; }
-    const targets = availableTargets(actor);
-    const hostilePlayer = battlefield?.running && targets.includes(battlefieldHero) && battlefield.canHit(actor,battlefieldHero) ? battlefieldHero : null;
-    if (battlefield?.running && actor.battlefieldTeam && !actor.battlefieldBoss) actor.target = targets[0] || null;
-    else if (hostilePlayer) actor.target = hostilePlayer;
-    if (!actor.target || !targets.includes(actor.target)) {
-      actor.target = targets.sort((a, b) => skillCastDistance(actor, a) - skillCastDistance(actor, b))[0] || null;
-      actor.seeT = 0;
+    if (battlefield?.running && actor.battlefieldTeam && !actor.battlefieldBoss) {
+      const next = battlefield.nearestTarget(actor);
+      if (actor.target !== next) actor.seeT = 0;
+      actor.target = next;
+    } else {
+      const targets = availableTargets(actor);
+      if (battlefield?.running && targets.includes(battlefieldHero) && battlefield.canHit(actor,battlefieldHero)) actor.target = battlefieldHero;
+      if (!actor.target || !targets.includes(actor.target)) {
+        actor.target = targets.sort((a, b) => skillCastDistance(actor, a) - skillCastDistance(actor, b))[0] || null;
+        actor.seeT = 0;
+      }
     }
     const target = actor.target;
     if (!target) { actor.moving = false; return; }
@@ -721,7 +723,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     const actorName = actor.n;
     const title=actor.battlefieldBoss?'<Nguyên soái>':earned?`<${earned.name}>`:'';
     const color = actor.battlefieldTeam === 'song' ? '#ffcc00' : actor.battlefieldTeam === 'jin' ? '#c77bff' : '#6ee7e0';
-    L3(actor.x, actor.y - nameplateOffset(look?.anim, Jn, 1, 0, 55), actorName, color, 12, actor.hp / actor.max, actor.battlefieldTeam && battlefield?.active ? battlefieldHealthColor(actor.battlefieldTeam, battlefield.state.team) : color, title, battlefieldTitleColor(actor.battlefieldBoss ? 'Nguyên soái' : earned?.name || 'Binh sĩ'));
+    L3(actor.x, actor.y - nameplateOffset(look?.anim, Jn, 1, 0, 55), actorName, color, 12, actor.hp / actor.max, actor.battlefieldTeam && battlefield?.active ? battlefieldHealthColor(actor.battlefieldTeam, battlefield.team) : color, title, battlefieldTitleColor(actor.battlefieldBoss ? 'Nguyên soái' : earned?.name || 'Binh sĩ'));
   }
   function text(simOnly = false) { return JSON.stringify({ format: "arena-damage-v1", exportedAt: new Date().toISOString(), oneDamage: sandbox.oneDamage,
     simulators: actors.map(actor => ({ id: actor.simId, name: actor.n, faction: actor.profile.fac, skill: actor.profile.main, attr: actor.profile.attr, skills: actor.profile.sk, pk: actor.pk, farm: actor.farm })),
@@ -1135,7 +1137,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       crowd.cancel(actor);
     },
     name: actor => actor === battlefieldHero ? previousField?.name || battlefieldHero.n || "Người chơi" : actor.n,
-    player: () => battlefieldHero, team: () => battlefield!.state.team,
+    player: () => battlefieldHero, team: () => battlefield!.team,
     running: () => !!battlefield?.running, alive: () => battlefieldWorld.life>0 && !(battlefieldWorld.deadT>0), changed: () => { battlefieldWorld.dirty=true; if(typeof R !== 'undefined')R=true; } });
   const supplies = createWarSupplies({ running: () => !!battlefield?.running,
     pharmacyPositions: () => {
@@ -1143,7 +1145,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       return map ? mapNpcs(map).filter(npc => npc.npcId === 'pharmacy' && (!npc.team || npc.team === state!.team)).map(npc => npc.position) : undefined;
     },
     alive: () => battlefieldWorld.life > 0 && !(battlefieldWorld.deadT > 0),
-    team: () => battlefield!.state.team, position: () => battlefieldHero,
+    team: () => battlefield!.team, position: () => battlefieldHero,
     changed: () => { if(typeof R !== 'undefined')R=true; },
     catalog: () => (S.potions || []).filter((potion:LegacyRecord) => typeof be==='undefined'||o.lvl >= (be[potion.tier] || 999)).map((potion:LegacyRecord) => ({...potion,key:`${potion.kind}:${potion.tier}`,price:typeof Ot==='function'?Ot(potion):potion.price||0})),
     pay(amount){if(!Number.isFinite(amount)||amount<0||o.gold<amount)return false;o.gold-=amount;battlefieldWorld.dirty=true;return true;},
@@ -1190,7 +1192,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
   function drawBattlefieldLoot(context: CanvasRenderingContext2D) {
     if (!battlefield?.active) return;
     context.save(); context.textAlign='center'; context.font='11px sans-serif';
-    const supplyCamp = CAMPS[battlefield.state.team];
+    const supplyCamp = CAMPS[battlefield.team];
     context.fillStyle='#ffdf9788';context.beginPath();context.ellipse(supplyCamp.x,supplyCamp.y,SUPPLY_RADIUS,SUPPLY_RADIUS/2,0,0,Math.PI*2);context.strokeStyle='#ffdf97';context.stroke();
     context.fillText('Điểm tập trung · Tiếp tế',supplyCamp.x,supplyCamp.y-55);
     for(const drop of warRewards.drops) {
@@ -1215,7 +1217,6 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
   }
   const marshalNotice = mountMarshalNotice();
   const soldierCountdown = mountSoldierCountdown();
-  const respawnCountdown = mountRespawnCountdown();
   battlefield = createBattlefield({
     marshalAppeared(side) {
       marshalNotice.show(side, battlefield!.state.team);
@@ -1230,7 +1231,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       Object.assign(battlefieldWorld,{moveTo:null,pickTarget:null,manTgt:null,tgt:null,clickHold:false,dash:null,dashTrail:null,combatProjectiles:[]});
       marshalNotice.reset();
       soldierCountdown.reset();
-      respawnCountdown.reset();
+      rankingButton.hidden = true;
       battlePanel.close(); pharmacy.close(); leaderboard.close();
       if(typeof horseTrader !== "undefined") horseTrader?.close();
       resultDialog.open(result,points,battlefield!.state.team);
@@ -1253,6 +1254,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       sandbox.clearCombat?.(false);
       ma(BATTLE_MAP); l.bgImg = bA(MapsEngine.getMapBackground(BATTLE_MAP)); l.zoneShown = BATTLE_MAP;
       l.town = false; l.battlefield = true; o.ctrl = 'manual'; o.autoMap = false;
+      rankingButton.hidden = false;
       document.getElementById('townBar')?.classList.add('hidden');
       const arenaPanel = document.getElementById('combat-sandbox'); if (arenaPanel) arenaPanel.inert = true;
       Object.assign(v, CAMPS[team]); l.life = l.P.life; l.mana = l.P.mana;
@@ -1265,8 +1267,9 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       crowd.reset(); if (previousField) diagnostics.enabled = previousLogging;
       marshalNotice.reset();
       soldierCountdown.reset();
+      rankingButton.hidden = true;
+      leaderboard.close();
       roadMonsters.clear(); warRewards.reset(); supplies.reset();
-      respawnCountdown.reset();
       if (!previousField) return;
       sandbox.clearCombat?.(false);
       ma(previousField.key); Object.assign(v, { x: previousField.x, y: previousField.y });
@@ -1276,18 +1279,15 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       const arenaPanel = document.getElementById('combat-sandbox'); if (arenaPanel) arenaPanel.inert = false;
     },
     respawnPlayer(team) {
-      respawnCountdown.reset();
       warRewards.revived(battlefieldHero);
-      l.life = l.P.life; l.mana = l.P.mana; l.deadT = 0;
-      l.slowT = l.slowPower = l.stunT = l.hpDotT = l.hpDot = 0;
-      Object.assign(v, CAMPS[team], { act: 'st', actT: 0, castT: 0, hurtT: 0 });
-      v.actionRevision = (v.actionRevision || 0) + 1;
+      const world = battlefieldWorld, hero = battlefieldHero;
+      world.life = world.P.life; world.mana = world.P.mana; world.deadT = 0;
+      world.slowT = world.slowPower = world.stunT = world.hpDotT = world.hpDot = 0;
+      Object.assign(hero, CAMPS[team], { act: 'st', actT: 0, castT: 0, hurtT: 0, _pp: null, _pk: '' });
     },
-    setPlayerDead(team, waitSeconds) {
-      respawnCountdown.render(true, waitSeconds);
+    setPlayerDead() {
       warRewards.killed(battlefieldHero);
-      Object.assign(battlefieldHero, CAMPS[team]);
-      battlefieldWorld.life = 0; battlefieldWorld.deadT = waitSeconds; battlefieldWorld.manTgt = battlefieldWorld.tgt = battlefieldWorld.moveTo = null;
+      battlefieldWorld.manTgt = battlefieldWorld.tgt = battlefieldWorld.moveTo = null;
       battlefieldWorld.slowT = battlefieldWorld.stunT = battlefieldWorld.hpDotT = battlefieldWorld.hpDot = 0;
       battlefieldHero.actionRevision = (battlefieldHero.actionRevision || 0) + 1;
       for (const key of ['combatProjectiles', 'fx', 'fxQ']) battlefieldWorld[key] = (battlefieldWorld[key] || []).filter((effect: LegacyRecord) => effect.combat?.actor !== battlefieldHero);
@@ -1315,6 +1315,20 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     const actor=actors.find(actor=>actor.simId===id && actor.battlefieldTeam && !actor.battlefieldBoss);
     return actor ? inspection.html(actor,tab) : null;
   });
+  const rankingButton = document.createElement("button");
+  rankingButton.id = "battlefield-ranking-button";
+  rankingButton.type = "button";
+  rankingButton.className = "btn sm";
+  rankingButton.textContent = "Bảng xếp hạng";
+  rankingButton.setAttribute("aria-controls", "war-leaderboard");
+  rankingButton.style.cssText = "position:fixed;right:12px;bottom:clamp(90px,17vh,140px);z-index:20";
+  rankingButton.hidden = true;
+  rankingButton.onclick = () => {
+    if (!battlefield?.running) return;
+    if (leaderboard.isOpen) leaderboard.close();
+    else leaderboard.open();
+  };
+  document.body.appendChild(rankingButton);
   const resultDialog = mountBattlefieldResult(() => battlefield!.acknowledgeResult());
   const role = (window as Window & { localGameAuth?: { user?: { role?: string } } }).localGameAuth?.user?.role;
   const canConfigureBattlefield = role === "admin" || role === "gm";
@@ -1337,7 +1351,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     if(!arenaEnabled||typeof equipmentTrader==='undefined'||!equipmentTrader.place)return;
     if(!recruitmentNpc)recruitmentNpc=equipmentTrader.place({...idleNpcPosition,name:'Chiêu Mộ Sứ',animation:r0[716].anim,subtitle:'Cài đặt Tống Kim',onInteract:()=>battlePanel.open(),visible:()=>true});
     if(!pharmacyNpc)pharmacyNpc=equipmentTrader.place({...idleNpcPosition,name:'Chủ Dược Điếm',animation:r0[852].anim,subtitle:'Thuốc sinh lực · Nội lực',onInteract:()=>pharmacy.open(),visible:()=>!!battlefield?.active});
-    const camp=battlefield?.active?CAMPS[battlefield.state.team]:idleNpcPosition;
+    const camp=battlefield?.active?CAMPS[battlefield.team]:idleNpcPosition;
     Object.assign(recruitmentNpc,battlefield?.active?{x:camp.x+105,y:camp.y+50}:idleNpcPosition);
     Object.assign(pharmacyNpc,{x:camp.x+145,y:camp.y-45});
   }

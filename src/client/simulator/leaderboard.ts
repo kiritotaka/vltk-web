@@ -88,8 +88,7 @@ export function mountWarLeaderboard(
     const state = match?.();
     const seconds = Math.max(0, Math.ceil(state?.remaining || 0));
     panel.querySelector("#war-match-status")!.textContent = state
-      ? `${state.phase === "idle" ? "Chưa vào trận" : state.result || "Đang giao chiến"} · Còn ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · Phe của bạn: ${TEAM_NAMES[state.team]}` +
-        (state.playerRespawn > 0 ? ` · Tái xuất chiến sau ${Math.ceil(state.playerRespawn)} giây${state.playerDeaths >= 5 ? " (×2)" : ""}` : "")
+      ? `${state.phase === "idle" ? "Chưa vào trận" : state.result || "Đang giao chiến"} · Còn ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · Phe của bạn: ${TEAM_NAMES[state.team]}`
       : "";
     const rows = standings(),
       player = rows.find((row) => row.player);

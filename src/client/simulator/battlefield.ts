@@ -1,4 +1,4 @@
-import { DEFAULT_DEPLOYMENT, PLAYER_DEATH_PENALTY_THRESHOLD, validateDeploymentSettings } from './deployment-settings';
+import { DEFAULT_DEPLOYMENT, validateDeploymentSettings } from './deployment-settings';
 import type { DeploymentSettings } from './deployment-settings';
 import { DEFAULT_SOLDIERS } from './soldier-config';
 import wildernessLayout from '../maps/content/9003/layout.json';
@@ -44,7 +44,7 @@ export interface BattlefieldHost {
   enter(team: Team): void;
   leave(): void;
   respawnPlayer(team: Team): void;
-  setPlayerDead(team: Team, waitSeconds: number): void;
+  setPlayerDead(): void;
   position(actor: SimulatorActor, x: number, y: number): void;
   restore(actor: SimulatorActor): void;
 }
@@ -52,7 +52,7 @@ export interface BattlefieldHost {
 /** Match state is transient, separate from character saves and training spawns. */
 export function createBattlefield(host: BattlefieldHost) {
   let phase: 'idle' | 'running' | 'finished' = 'idle';
-  let elapsed = 0, team: Team = 'song', playerDue: number | null = null;
+  let elapsed = 0, team: Team = 'song';
   let generation = 0, adding = false;
   let nextDeployment = validateDeploymentSettings(DEFAULT_DEPLOYMENT), deployment = { ...nextDeployment }, playerDeaths = 0;
   let marshalHP = DEFAULT_SOLDIERS.marshal.hp;
@@ -88,27 +88,46 @@ export function createBattlefield(host: BattlefieldHost) {
     if (phase !== 'running') return false;
     const from = source === host.player() ? team : source.battlefieldTeam;
     const to = target === host.player() || target.battlefieldPlayer ? team : target.battlefieldTeam;
-    const targetAlive = target === host.player() || target.battlefieldPlayer ? host.playerAlive() && playerDue === null : alive(target);
-    if ((source === host.player() || source.battlefieldPlayer) && (playerDue !== null || !host.playerAlive())) return false;
+    const targetAlive = target === host.player() || target.battlefieldPlayer ? host.playerAlive() : alive(target);
+    if ((source === host.player() || source.battlefieldPlayer) && !host.playerAlive()) return false;
     if (owns(source) && source !== host.player() && !alive(source)) return false;
     return isTeam(from) && isTeam(to) && from !== to && targetAlive;
   }
-  function targets(actor: SimulatorActor): LegacyEntity[] {
+  function enemies(actor: SimulatorActor): LegacyEntity[] {
     if (phase !== 'running' || !alive(actor)) return [];
-    const candidates: LegacyEntity[] = [...host.actors(), ...(host.monsters?.() || [])].filter(target => canHit(actor, target));
-    if (playerDue === null && host.playerAlive() && canHit(actor, host.player())) candidates.push(host.player());
-    const distance = (target:LegacyEntity) => Math.hypot(target.x-actor.x,(target.y-actor.y)*2);
-    if (actor.battlefieldBoss) return candidates.filter(target => distance(target) < 650);
-    const priority = (target: LegacyEntity) => target === host.player() ? 0 : !target.battlefieldMonster && !target.battlefieldBoss ? 1 : 2;
-    const inRange = (target: LegacyEntity) => host.inAttackRange?.(actor, target) ?? distance(target) < 500;
-    const ranged = new Set(candidates.filter(inRange));
+    const candidates: LegacyEntity[] = [];
+    for (const target of host.actors()) if (canHit(actor, target)) candidates.push(target);
+    for (const target of host.monsters?.() || []) if (canHit(actor, target)) candidates.push(target);
+    const player = host.player();
+    if (canHit(actor, player)) candidates.push(player);
+    return candidates;
+  }
+  const distance = (actor: SimulatorActor, target: LegacyEntity) => Math.hypot(target.x-actor.x,(target.y-actor.y)*2);
+  const priority = (target: LegacyEntity) => target === host.player() ? 0 : !target.battlefieldMonster && !target.battlefieldBoss ? 1 : 2;
+  const inRange = (actor: SimulatorActor, target: LegacyEntity, gap: number) => host.inAttackRange?.(actor, target) ?? gap < 500;
+
+  function nearestTarget(actor: SimulatorActor): LegacyEntity | null {
+    let best: LegacyEntity | null = null;
+    let bestPriority = Infinity, bestDistance = Infinity;
+    for (const target of enemies(actor)) {
+      const gap = distance(actor, target);
+      const order = inRange(actor, target, gap) ? priority(target) : 3;
+      if (order < bestPriority || (order === bestPriority && gap < bestDistance)) {
+        best = target; bestPriority = order; bestDistance = gap;
+      }
+    }
+    return best;
+  }
+
+  function targets(actor: SimulatorActor): LegacyEntity[] {
+    const candidates = enemies(actor);
+    if (actor.battlefieldBoss) return candidates.filter(target => distance(actor, target) < 650);
     // Only enemies that can be attacked now participate in type priority.
     // Keep all enemies in the list so area attacks still hit every hostile body.
-    return candidates.sort((a,b) => {
-      const aReady = ranged.has(a), bReady = ranged.has(b);
-      if (aReady !== bReady) return aReady ? -1 : 1;
-      return (aReady ? priority(a) - priority(b) : 0) || distance(a) - distance(b);
-    });
+    return candidates.map(target => {
+      const gap = distance(actor, target);
+      return { target, gap, order: inRange(actor, target, gap) ? priority(target) : 3 };
+    }).sort((a,b) => a.order - b.order || a.gap - b.gap).map(entry => entry.target);
   }
 
   function place(actor: SimulatorActor, index = 0) {
@@ -182,7 +201,7 @@ export function createBattlefield(host: BattlefieldHost) {
     generation++;
     for (const actor of host.actors().filter(owns)) host.remove(actor);
     marshalRecipes.clear(); marshalPreparing = false; preparationError = ''; preparation = Promise.resolve();
-    bosses.clear(); respawns.clear(); playerDue = null; elapsed = 0; playerDeaths = 0; phase = 'idle'; result = '';
+    bosses.clear(); respawns.clear(); elapsed = 0; playerDeaths = 0; phase = 'idle'; result = '';
     score.song = score.jin = 0; finalScore = null;
     host.leave();
   }
@@ -219,17 +238,17 @@ export function createBattlefield(host: BattlefieldHost) {
     }
   }
   function playerDied() {
-    if (phase !== 'running' || playerDue !== null) return;
+    if (phase !== 'running' || host.playerAlive()) return;
     playerDeaths++;
-    const wait = deployment.respawnSeconds * (playerDeaths >= PLAYER_DEATH_PENALTY_THRESHOLD ? 2 : 1);
-    playerDue = elapsed + wait; score[otherTeam(team)]++;
-    host.setPlayerDead(team, wait);
+    score[otherTeam(team)]++;
+    host.setPlayerDead();
+    host.respawnPlayer(team);
   }
   function tick(dt: number) {
     if (phase !== 'running' || !Number.isFinite(dt) || dt <= 0) return;
     elapsed = Math.min(BATTLE_DURATION, elapsed + dt);
     for (const actor of host.actors().filter(owns)) if (!alive(actor)) died(actor);
-    if (!host.playerAlive() && playerDue === null) playerDied();
+    if (!host.playerAlive()) playerDied();
     if (elapsed >= BATTLE_DURATION) {
       phase = 'finished';
       finalScore = { ...(host.teamPoints?.() || score) };
@@ -243,13 +262,14 @@ export function createBattlefield(host: BattlefieldHost) {
       if (host.actors().includes(actor)) { host.restore(actor); actor.battlefieldDeathCounted = false; place(actor); }
       respawns.delete(actor);
     }
-    if (playerDue !== null && elapsed + 1e-9 >= playerDue) { host.respawnPlayer(team); playerDue = null; }
   }
   function configureDeployment(settings: DeploymentSettings) { nextDeployment = validateDeploymentSettings(settings); }
-  return { acknowledgeResult() { if (phase === "finished") reset(true); }, configureDeployment, start, reset, add, addAsync, addBothAsync, targets, canHit, died, playerDied, tick, owns,
+  return { acknowledgeResult() { if (phase === "finished") reset(true); }, configureDeployment, start, reset, add, addAsync, addBothAsync, targets, nearestTarget, canHit, died, playerDied, tick, owns,
     get prepared() { return preparation; },
+    get team() { return team; },
+    get remaining() { return BATTLE_DURATION - elapsed; },
     get active() { return phase !== 'idle'; }, get running() { return phase === 'running'; },
-    get state() { return { mapId: BATTLE_MAP, camps: {song:{...CAMPS.song},jin:{...CAMPS.jin}}, deployment: { ...deployment }, playerDeaths, monsters: { count: host.monsterCount?.() ?? (host.monsters?.().length || 0), alive: (host.monsters?.() || []).filter(alive).length }, phase, elapsed, marshalPreparing, preparationError, remaining: BATTLE_DURATION - elapsed, team, result, score: { ...(finalScore || host.teamPoints?.() || score) }, elements: { ...elements }, playerRespawn: playerDue === null ? 0 : Math.max(0, playerDue - elapsed),
+    get state() { return { mapId: BATTLE_MAP, camps: {song:{...CAMPS.song},jin:{...CAMPS.jin}}, deployment: { ...deployment }, playerDeaths, monsters: { count: host.monsterCount?.() ?? (host.monsters?.().length || 0), alive: (host.monsters?.() || []).filter(alive).length }, phase, elapsed, marshalPreparing, preparationError, remaining: BATTLE_DURATION - elapsed, team, result, score: { ...(finalScore || host.teamPoints?.() || score) }, elements: { ...elements },
       armies: Object.fromEntries((['song', 'jin'] as const).map(side => [side, { count: host.actors().filter(a => a.battlefieldTeam === side && !a.battlefieldBoss).length, alive: host.actors().filter(a => a.battlefieldTeam === side && !a.battlefieldBoss && alive(a)).length, bossHP: Math.max(0, bosses.get(side)?.hp || 0), bossMax: bosses.get(side)?.max || 0 }])) }; },
   };
 }

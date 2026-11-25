@@ -16,22 +16,22 @@
     match.configureDeployment({respawnSeconds:seconds,soldierAppearanceSeconds:0}); match.start('song');
     return {match,player,actors,kill(){alive=false;},alive:()=>alive};
   }
-  test('30/50/60-second redeployment doubles from the fifth human death without compounding or penalizing SIMs',()=>{
+  test('30/50/60-second redeployment applies to SIMs while human players respawn immediately',()=>{
     for(const seconds of [30,50,60]) {
       const fixture=deploymentFixture(seconds),{match,player}=fixture;
       const [enemy]=match.add({team:'jin',faction:'shaolin',level:150,strength:'normal',count:1});
       for(let death=1;death<=6;death++) {
-        fixture.kill();match.playerDied();match.playerDied();
-        const wait=seconds*(death>=5?2:1);
-        assert.equal(match.state.playerDeaths,death);assert.ok(Math.abs(match.state.playerRespawn-wait)<1e-8);
+        fixture.kill();
         assert.equal(match.canHit(player,enemy),false);assert.equal(match.canHit(enemy,player),false);
-        match.tick(wait-.01);assert.equal(fixture.alive(),false);
-        match.tick(.01);assert.equal(fixture.alive(),true);assert.equal(match.state.playerRespawn,0);
+        match.playerDied();match.playerDied();
+        assert.equal(match.state.playerDeaths,death);
+        assert.equal(fixture.alive(),true);
+        assert.equal(match.state.elapsed,0);
       }
       enemy.hp=0;match.died(enemy);match.tick(seconds-.01);assert.ok(enemy.dead);
       match.tick(.01);assert.equal(enemy.dead,false);
       match.start('song');assert.equal(match.state.playerDeaths,0);
-      fixture.kill();match.playerDied();assert.equal(match.state.playerRespawn,seconds);
+      fixture.kill();match.playerDied();assert.equal(fixture.alive(),true);
     }
   });
   test('all soldiers appear together after five seconds and pending soldiers can be cancelled',()=>{
@@ -47,15 +47,13 @@
     sim.tick(.01);assert.equal(sim.roadMonsters.actors.length,70);
     match.start('song');sim.tick(2);match.reset();sim.tick(100);assert.equal(sim.roadMonsters.actors.length,0);
   });
-  test('native game loop cannot revive a waiting human after the old six-second timer',()=>{
+  test('native death immediately restores HP and MP even with 50-second SIM deployment',()=>{
     const game=createHeadlessGame(process.cwd()),sim=game.arenaSimulator;
-    const declaration=collectLegacyDeclarations('src/client').get('Td');assert.ok(declaration);
-    vm.runInContext(declaration,game);game.$w=()=>{};game.Sb=()=>{};game.l.sweepT=0;game.l.dirty=false;
+    const declaration=collectLegacyDeclarations('src/client').get('dD');assert.ok(declaration);
+    vm.runInContext(declaration,game);
     sim.battlefield.configureDeployment({respawnSeconds:50,soldierAppearanceSeconds:0});sim.battlefield.start('song');
-    game.l.life=0;sim.battlefield.playerDied();
-    for(let tick=0;tick<100;tick++) game.Td(.1);
-    assert.equal(game.l.life,0);assert.ok(game.l.deadT>39);assert.ok(sim.battlefield.state.playerRespawn>39);
-    sim.tick(40);assert.equal(game.l.deadT,0);assert.equal(game.l.life,game.l.P.life);
+    game.l.life=0;game.l.mana=1;game.dD();
+    assert.equal(game.l.deadT,0);assert.equal(game.l.life,game.l.P.life);assert.equal(game.l.mana,game.l.P.mana);
     game.l.life=0;sim.battlefield.playerDied();sim.battlefield.reset();assert.equal(game.l.deadT,0);
   });
   test('new timing settings restore with the saved character and reject invalid values without altering a match',()=>{

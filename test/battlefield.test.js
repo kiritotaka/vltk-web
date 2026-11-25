@@ -28,6 +28,16 @@ test('20 minute match uses two camps and only opposing teams are eligible, inclu
   assert.equal(match.canHit(player, song[0]), false); assert.equal(match.canHit(jin[0], player), true);
   assert.equal(match.canHit(song[0], player), false);
 });
+test('nearest target matches ordered combat targets for clustered SIM armies', () => {
+  const { match, player } = fixture();
+  match.start('song');
+  const armies = ['song','jin'].flatMap(team => match.add({ team, faction:'shaolin', level:90, strength:'normal', count:100 }));
+  Object.assign(player,{ x:1200, y:1300 });
+  for (const [index, actor] of armies.entries()) {
+    Object.assign(actor,{ x:800+(index*103)%1800, y:800+(index*79)%1800 });
+  }
+  for (const actor of armies) assert.equal(match.nearestTarget(actor),match.targets(actor)[0]);
+});
 test('SIM death is counted once and respawns after 30 seconds; boss death never respawns or ends match early', () => {
   const { match, actors } = fixture(); match.start('song');
   const [sim] = match.add({ team: 'jin', faction: 'gaibang', level: 150, strength: 'normal', count: 1 });
@@ -40,9 +50,13 @@ test('SIM death is counted once and respawns after 30 seconds; boss death never 
 });
 test('player respawns at own camp without stopping the match or replacing SIM identities', () => {
   const { match, actors, events, killPlayer } = fixture(); match.start('jin'); const originals = [...actors];
-  killPlayer(); match.playerDied(); match.playerDied(); match.tick(29.99);
-  assert.equal(match.state.score.song, 1); assert.ok(match.state.playerRespawn > 0);
-  match.tick(.01); assert.deepEqual(actors, originals); assert.ok(events.some(e => e[0] === 'respawn' && e[1] === 'jin'));
+  for (let death = 1; death <= 6; death++) {
+    killPlayer(); match.playerDied(); match.playerDied();
+    assert.equal(match.state.score.song, death);
+    assert.deepEqual(events.at(-1), ['respawn', 'jin']);
+  }
+  assert.equal(match.state.elapsed, 0);
+  assert.deepEqual(actors, originals);
 });
 test('reinforcements preserve configured boss HP and damage dealt and invalid input cannot mutate armies', () => {
   const { match, actors } = fixture(); match.start('song'); match.tick(600); const boss = actors.find(a => a.battlefieldTeam === 'jin');

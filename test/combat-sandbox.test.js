@@ -1027,7 +1027,7 @@ test('Tống Kim SIMs fight the opposing side, cancel old contacts on death and 
   song.x=jin.x=s.v.x=1700;song.y=jin.y=s.v.y=1700;
   s.arenaSimulator.tick(.1);advanceSimulator(s,.5);const pending=s.l.combatProjectiles.find(e=>e.combat.actor===song);assert.ok(pending);
   const hp=jin.hp;advanceSimulator(s);assert.ok(jin.hp<hp);
-  s.l.life=0;match.playerDied();assert.equal(s.l.deadT,30);
+  s.l.life=0;match.playerDied();assert.equal(s.l.deadT,0);assert.equal(s.l.life,s.l.P.life);
   song.cooldown=0;const before=jin.hp;s.arenaSimulator.tick(.1);advanceSimulator(s);assert.ok(jin.hp<before);
   song.hp=0;s.arenaSimulator.tick(.1);assert.equal(song.dead,true);assert.ok(s.arenaSimulator.actors.includes(song));
   const after=jin.hp;pending.combat.onHit(jin);assert.equal(jin.hp,after);
@@ -1050,13 +1050,13 @@ test('Tống Kim bosses actually rotate both factions 90/150 casts with boss HP 
   assert.ok(event);assert.equal(event.steps.find(step=>step.values.stats).values.stats.life,boss.max);
 });
 
-test('lethal Tống Kim PK immediately enters the player respawn state before normal regeneration can revive them',()=>{
+test('lethal Tống Kim PK immediately restores the player at camp and credits the attacker once',()=>{
   const s=battlefieldGame(),match=s.arenaSimulator.battlefield;match.start('song');s.arenaSimulator.tick(5);
   const [enemy]=match.add({team:'jin',faction:'gaibang',level:150,strength:'normal',count:1});
   s.v.x += 100; enemy.x=s.v.x;enemy.y=s.v.y;s.l.life=1;
   s.arenaSimulator.tick(.1);advanceSimulator(s);
-  assert.equal(s.l.life,0);assert.ok(s.l.deadT>0);assert.equal(match.state.score.jin,150);
-  assert.equal(match.canHit(enemy,s.v),false);
+  assert.equal(s.l.life,s.l.P.life);assert.equal(s.l.deadT,0);assert.equal(match.state.score.jin,150);
+  assert.equal(s.v.x,match.state.camps.song.x);assert.equal(s.v.y,match.state.camps.song.y);
 });
 
 test('Tống Kim synchronous secondary skills resolve against the real player even inside a SIM visual context',()=>{
@@ -1172,7 +1172,8 @@ test('Tống Kim soldiers have curated team skins, reject allied hits, and hosti
  const [ally]=match.add({team:'song',faction:'wudang',level:150,strength:'normal',count:1}),[opponent]=match.add({team:'jin',faction:'gaibang',level:150,strength:'normal',count:1});
  opponent.x=s.v.x+200;opponent.y=s.v.y;ally.x=opponent.x+1;ally.y=opponent.y;
  opponent.target=ally;s.arenaSimulator.tick(.1);assert.equal(opponent.target,s.v,'player wins over a closer SIM target');
- s.l.life=0;match.playerDied();s.arenaSimulator.tick(.1);assert.notEqual(opponent.target,s.v,'dead player is not pursued');
+ s.l.life=0;assert.equal(match.canHit(opponent,s.v),false,'a defeated player cannot be hit');
+ match.playerDied();assert.equal(s.l.life,s.l.P.life);
 });
 
 test('Tống Kim player soldier kills grant merit and collectible pills; allied poison never grants credit',()=>{
@@ -1194,6 +1195,46 @@ test('native soldier contacts damage only opposing soldiers through the shared c
  const before=target.hp,allyHP=friendly.hp;s.$d(attacker,.1);advanceSimulator(s,1.1);
  assert.ok(target.hp<before);assert.equal(friendly.hp,allyHP);
  s.arenaSimulator.receiveSoldierHit(friendly,attacker);assert.equal(friendly.hp,allyHP);
+});
+
+test('Tống Kim Auto approaches a nearby drop, respects the loot toggle and skips a blocked route', () => {
+  const s = battlefieldGame(), { battlefield, warRewards } = s.arenaSimulator;
+  battlefield.start('song');
+  s.arenaSimulator.tick(5);
+  const soldier = s.arenaSimulator.roadMonsters.actors.find(actor => actor.battlefieldTeam === 'jin');
+  const dropLoot = () => {
+    Object.assign(soldier, { x:s.v.x+185, y:s.v.y });
+    warRewards.revived(soldier);
+    warRewards.record(s.v, soldier);
+    warRewards.killed(soldier);
+  };
+  s.Math.random = () => 0;
+  dropLoot();
+  s.INV_MAX = 60;
+  let walks = 0, lootEnabled = false, blocked = false;
+  const noop = () => {};
+  Object.assign(s.l.P, { regen:0 });
+  Object.assign(s, { $w:noop, Sb:noop, advanceSkillContacts:noop, advanceConsumableCooldowns:noop, X9:noop, nP:noop,
+    Ab:noop, cb:noop, Oy:noop, fy:noop, hp:()=>false, Ga:()=>false, sD:()=>false, Cd:noop, oD:()=>1,
+    _1:()=>[], D0() { s.l.dirty=false; },
+    $1:()=>false, hA:()=>false, WA:()=>({auto:lootEnabled}), qp:220, Ra:()=>1, actorActionLocked:()=>false,
+    wa(actor,x,y) { walks++; if (!blocked) Object.assign(actor,{x,y}); } });
+  loadDeclaration(s,'src/client/core/state-and-save-02.js','Td');
+  s.Td(.1);
+  assert.equal(walks,0);
+  lootEnabled = true;
+  s.Td(.1);
+  assert.equal(walks,1);
+  s.Td(.1);
+  assert.equal(warRewards.state.inventory.resistance,1);
+  assert.equal(warRewards.drops.length,0);
+  dropLoot();
+  blocked = true;
+  for (let index=0; index<4; index++) s.Td(1);
+  const attempts = walks;
+  s.Td(1);
+  assert.equal(walks,attempts);
+  assert.equal(warRewards.drops.length,1);
 });
 
 test('Tống Kim soldiers use rank-specific HP and respect each configured home leash',()=>{
@@ -1522,15 +1563,34 @@ test('a SIM keeps stolen HP and MP in its own state after a delayed battlefield 
   }
 });
 
-test('respawn countdown updates through the real player loop in production and arena',()=>{
+test('Tống Kim shows a clickable leaderboard button only during the match',()=>{
+  const s=battlefieldGame(false), match=s.arenaSimulator.battlefield;
+  const button=s.simNodes.find(node=>node.id==='battlefield-ranking-button');
+  assert.equal(button.hidden,true);
+  match.start('song');
+  assert.equal(button.hidden,false);
+  button.onclick();
+  assert.equal(s.arenaSimulator.leaderboard.isOpen,true);
+  button.onclick();
+  assert.equal(s.arenaSimulator.leaderboard.isOpen,false);
+  button.onclick();match.reset();
+  assert.equal(button.hidden,true);
+  assert.equal(s.arenaSimulator.leaderboard.isOpen,false);
+  match.start('jin');match.tick(1200);
+  assert.equal(button.hidden,true);
+});
+
+test('Tống Kim player respawns immediately in production and arena',()=>{
  for(const arena of [false,true]) {
   const s=battlefieldGame(arena),match=s.arenaSimulator.battlefield;match.start('song');
-  const notice=s.simNodes.find(node=>node.id==='battlefield-respawn-countdown');
-  Object.assign(s,{$w(){},Sb(){},advanceSkillContacts(){}});s.l.sweepT=0;s.l.dirty=false;
-  loadDeclaration(s,'src/client/core/state-and-save-02.js','Td');
-  s.l.life=0;match.playerDied();assert.equal(notice.textContent,'Rời doanh trại sau 30 giây');
-  s.Td(1);assert.equal(notice.textContent,'Rời doanh trại sau 29 giây');assert.equal(s.l.life,0);
-  match.reset();assert.equal(notice.hidden,true);
+  assert.equal(s.simNodes.some(node=>node.id==='battlefield-respawn-countdown'),false);
+  s.v.x += 100;
+  s.l.life=0;s.l.mana=1;
+  loadDeclaration(s,'src/client/core/state-and-save-02.js','dD');
+  s.dD();
+  assert.equal(s.l.life,s.l.P.life);assert.equal(s.l.mana,s.l.P.mana);assert.equal(s.l.deadT,0);
+  assert.equal(s.v.x,match.state.camps.song.x);assert.equal(s.v.y,match.state.camps.song.y);
+  match.reset();
  }
 });
 

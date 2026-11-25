@@ -65,6 +65,7 @@ export function createWarRewards(host: { player(): LegacyEntity; team(): Team; r
   const traps: {kind:WarItem;x:number;y:number;age:number;expires:number}[] = [];
   const drops: { id:number; kind:WarItem; x:number; y:number; expires:number }[] = [];
   function reset() {
+    pursuit = undefined; retryAt.clear();
     elapsed=0; nextId=0; credits=new WeakMap(); defeated=new WeakSet(); merits=new WeakMap(); soldierKills=new WeakMap(); totals.song=totals.jin=0; drops.length=0; traps.length=0; shared=new Map();
     for(const kind of Object.keys(WAR_ITEMS) as WarItem[]) { until[kind]=0; if(!host.storage)inventory[kind]=0; }
     host.changed();
@@ -104,9 +105,33 @@ export function createWarRewards(host: { player(): LegacyEntity; team(): Team; r
       drops.push({id:++nextId,kind,x:target.x,y:target.y,expires:elapsed+90});
     }
   }
+  let pursuit: { id: number; best: number; stalled: number } | undefined;
+  const retryAt = new Map<number, number>();
+  function pursueDrop(dt: number, range: number, move: (x: number, y: number) => void) {
+    if (!host.running() || !host.alive()) return false;
+    const player = host.player();
+    let closest: (typeof drops)[number] | undefined;
+    let best = range;
+    for (const drop of drops) {
+      if (drop.expires <= elapsed || (retryAt.get(drop.id) || 0) > elapsed || host.canCollect?.(drop.kind) === false) continue;
+      const distance = Math.hypot(player.x - drop.x, (player.y - drop.y) * 2);
+      if (distance > 80 && distance <= best) { closest = drop; best = distance; }
+    }
+    if (!closest) { pursuit = undefined; return false; }
+    if (pursuit?.id !== closest.id || best < pursuit.best - 10) {
+      pursuit = { id: closest.id, best, stalled: 0 };
+    } else if ((pursuit.stalled += dt) >= 3) {
+      retryAt.set(closest.id, elapsed + 15);
+      pursuit = undefined;
+      return false;
+    }
+    move(closest.x, closest.y);
+    return true;
+  }
   function tick(dt:number) {
     if(!host.running()) { if(shared.size || traps.length || Object.values(until).some(value=>value>elapsed)) { for(const kind of itemKinds)until[kind]=0; shared.clear();traps.length=0;host.bonusesChanged?.();host.changed(); } return; }
     elapsed+=dt;
+    for (const [id, retry] of retryAt) if (retry <= elapsed) retryAt.delete(id);
     let expired=false;
     for(const kind of itemKinds)if(until[kind]>0&&until[kind]<=elapsed) { until[kind]=0;expired=true; }
     for(const [actor,buffs] of shared) {
@@ -175,7 +200,7 @@ export function createWarRewards(host: { player(): LegacyEntity; team(): Team; r
     if(actor!==host.player()&&active('horn')) { stats.retMelee=(stats.retMelee||0)*.8;stats.retMeleeP=(stats.retMeleeP||0)*.8;stats.retRangeP=(stats.retRangeP||0)*.8; }
 
   }
-  return {reset,record,killed,tick,use,apply,get totals(){return {...totals};},revived(actor:LegacyEntity){defeated.delete(actor);credits.delete(actor);}, get traps(){return traps.map(trap=>({...trap}));}, get drops(){return drops.map(drop=>({...drop}));},
+  return {reset,record,killed,tick,pursueDrop,use,apply,get totals(){return {...totals};},revived(actor:LegacyEntity){defeated.delete(actor);credits.delete(actor);}, get traps(){return traps.map(trap=>({...trap}));}, get drops(){return drops.map(drop=>({...drop}));},
     rank(actor:LegacyEntity){const points=merits.get(actor)||0;return{...warRank(points),points,soldierKills:soldierKills.get(actor)||0,next:WAR_RANKS.find(rank=>rank.points>points)?.points||null};},
     get state(){const points=merits.get(host.player())||0;return{points,title:warRank(points).name,next:WAR_RANKS.find(rank=>rank.points>points)?.points||null,inventory:Object.fromEntries(itemKinds.map(kind=>[kind,stock(kind)])) as Record<WarItem,number>,buffs:Object.fromEntries(itemKinds.map(kind=>[kind,Math.max(0,Math.max(until[kind],shared.get(host.player())?.[kind]||0)-elapsed)])) as Record<WarItem,number>};} };
 }

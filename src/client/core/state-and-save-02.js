@@ -16,11 +16,7 @@ var Td = function (A) {
   if (typeof combatSandbox !== "undefined" && combatSandbox) combatSandbox.tick(A);
   else if (typeof arenaSimulator !== "undefined" && arenaSimulator?.battlefield.active) arenaSimulator.tick(A);
   advanceSkillContacts(A);
-  if (typeof arenaSimulator !== "undefined" && arenaSimulator && arenaSimulator.battlefield.active) {
-    if (!arenaSimulator.battlefield.running) return;
-    const wait = arenaSimulator.battlefield.state.playerRespawn;
-    if (wait > 0) { l.deadT = wait; return; }
-  }
+  if (typeof arenaSimulator !== "undefined" && arenaSimulator?.battlefield.active && !arenaSimulator.battlefield.running) return;
   if (l.deadT > 0) {
     ((l.deadT -= A),
       l.deadT <= 0 && ((l.life = n.life), (l.mana = n.mana), (o.wave = 1), Ga() || l.battlefield || o8()));
@@ -56,7 +52,13 @@ var Td = function (A) {
     return;
   }
   (fy(A), (l.activeT = (l.activeT || 0) + A));
-  const t = hp(A);
+  const collectingWarDrop = l.battlefield && !$1() && WA().auto && !l.pickTarget &&
+    !(l.stunT > 0) && !actorActionLocked(v) &&
+    typeof arenaSimulator !== "undefined" && arenaSimulator?.warRewards?.pursueDrop(A, qp, (x, y) => {
+      wa(v, x, y, 170 * Ra() * A);
+      v.face = x >= v.x ? 1 : -1;
+    });
+  const t = collectingWarDrop || hp(A);
   if (
     (l.unvoid && typeof Qd == "function" && Qd(),
     Ga() && GD(A),
@@ -88,7 +90,7 @@ var Td = function (A) {
   }
   l.atkT = Math.max(0, (l.atkT || 0) - A);
   ($1() && Ah(A),
-    (t && l.pickTarget) ||
+    (t && (l.pickTarget || collectingWarDrop)) ||
       (hA() && !(l.manTgt && !l.manTgt.dead && l.manTgt.hp > 0)
         ? (l.manTgt = null)
         : (hA() && l.clickHold) || ($1() && !(hA() && l.manTgt)) ||
@@ -99,7 +101,7 @@ var Td = function (A) {
               !t &&
               (l.stunT > 0 ||
                 wa(v, l.moveTo.x, l.moveTo.y, 150 * Ra() * A))),
-      !(l.stunT > 0) && !actorActionLocked(v) &&
+      !collectingWarDrop && !(l.stunT > 0) && !actorActionLocked(v) &&
         !(hA() && !l.manTgt) &&
         (l.atkT <= 0 && (l.atkT = oD()))));
   for (const e of _1()) $d(e, A);
