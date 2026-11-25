@@ -115,3 +115,10 @@ test('actual target status is separate from the preview and expires without inve
  s.l.enemies=[target];p.setOpen(true);assert.equal(p.model.actual[0].value,'25%');assert.equal(p.model.actual[1].value,'2 giây');
  target.slowT=0;target.stun=0;s.timers[0]();assert.equal(p.model.actual[0].value,'0%');assert.equal(p.model.actual[2].value,'0 giây');
 });
+
+test('developer status inspector launcher remains hidden during normal gameplay', () => {
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/client/status/runtime.ts'), 'utf8');
+  assert.match(source, /toggle\.id = 'status-log-toggle'/);
+  assert.match(source, /toggle\.hidden = true;/);
+  assert.doesNotMatch(source, /toggle\.hidden = !playing;/);
+});
