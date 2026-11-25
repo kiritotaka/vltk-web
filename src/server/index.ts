@@ -5,6 +5,7 @@
  * Import trong test/tool chỉ tạo factory; chạy file trực tiếp mới listen.
  */
 import Fastify from 'fastify';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { ROOT, PUBLIC_ROOT, isMainModule } from './paths.ts';
 import { openDatabase } from './database.ts';
@@ -22,9 +23,14 @@ export function createServer({
   combatSandbox = process.env.COMBAT_SANDBOX === '1',
 }: ServerOptions = {}) {
   const bundle = buildApp();
+  const revision = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+    cwd: ROOT, encoding: 'utf8', timeout: 1500, windowsHide: true,
+  });
+  const commit = revision.status === 0 ? revision.stdout.trim() : '';
+  const version = /^[a-f0-9]{7,40}$/.test(commit) ? commit : 'build-' + bundle.hash.slice(0, 12);
   seedCatalog(db);
   const services: ServerServices = {
-    db, assets: createAssetCache({ root: PUBLIC_ROOT }), development, combatSandbox, downloadAssets,
+    db, assets: createAssetCache({ root: PUBLIC_ROOT }), development, combatSandbox, downloadAssets, version,
     moduleFiles: new Set(bundle.map.sources.map(file => 'app/' + file)),
     startupBundle: development ? undefined : { code: bundle.code, sourceMap: JSON.stringify(bundle.map) },
   };

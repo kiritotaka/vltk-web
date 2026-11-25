@@ -8,7 +8,7 @@ import type { ServerServices } from '../types.ts';
 
 /** Giữ nguyên URL/payload/status để client/bootstrap.js tiếp tục dùng API cũ. */
 export function registerApiRoutes(app: FastifyInstance, services: ServerServices): void {
-  const { db, assets, development, combatSandbox } = services;
+  const { db, assets, development, combatSandbox, version } = services;
   // A fresh instance ID after each server start signals deployed code changes
   // without needing a manual version bump or restarting Cloudflare Tunnel.
   const instanceId = randomUUID();
@@ -16,7 +16,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ServerServices
   registerLocalChat(app, db, storage.requireUser);
   registerMarket(app, db, storage.requireUser);
   app.get('/api/config', (_request, reply) => sendJson(reply, 200,
-    { development, instanceId, ...(development && combatSandbox ? { combatSandbox: true } : {}) }));
+    { development, instanceId, version, ...(development && combatSandbox ? { combatSandbox: true } : {}) }));
   app.get('/api/health', (_request, reply) => sendJson(reply, 200, { ok: true, database: 'sqlite', mode: 'local' }));
   app.get('/api/assets', (_request, reply) => sendJson(reply, 200, assets.report()));
   app.get('/api/storage', (request, reply) => sendJson(reply, 200, storage.read(request)));

@@ -37,11 +37,34 @@ function decode(value: string) {
   } catch { return null; }
 }
 
+export function itemForChat(db: DatabaseSync, owner: string, slot: CharacterSlot, uid: number) {
+  const row = db.prepare('SELECT value FROM account_storage WHERE account_id=? AND key=?').get(owner, slot);
+  const state = typeof row?.value === 'string' ? decode(row.value)?.state : undefined;
+  const inventory = Array.isArray(state?.inv) ? state.inv : [];
+  const equipped = state?.eq && typeof state.eq === 'object' ? Object.values(state.eq) : [];
+  const matching = [...inventory, ...equipped].filter(value => value && typeof value === 'object' && (value as Item).uid === uid);
+  const item = matching.length === 1 ? matching[0] as Record<string, unknown> : null;
+  if (!item || typeof item.n !== 'string' || !item.n.trim() || item.n.length > 100 ||
+      typeof item.d !== 'number' || !Number.isInteger(item.d) || item.d < 0 || item.d > 99) {
+    error('Không tìm thấy vật phẩm này trong Hành trang hoặc trang bị của nhân vật.');
+  }
+  const fields = ['n','d','k','p','r','ic','lvl','s','base','req','mag','ext','set','enh','ktc','lock'];
+  const summary = Object.fromEntries(fields.filter(field => Object.hasOwn(item, field)).map(field => [field, item[field]]));
+  if (JSON.stringify(summary).length > 6000) error('Thông tin vật phẩm quá dài.');
+  return summary;
+}
+
+function eligibleEquipment(value: unknown, allowLocked: boolean): value is Item {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Item;
+  return (allowLocked || !item.lock) && !item.ktc && Number.isInteger(item.d) && item.d >= 0 && item.d <= 9 &&
+    typeof item.n === 'string' && !!item.n.trim() && item.n.length <= 100;
+}
+
 function candidate(state: State, uid: number, allowLocked = false): Item {
   const found = (state.inv ?? []).filter(item => item && typeof item === 'object' && (item as Item).uid === uid);
   const item = found[0] as Item | undefined;
-  if (found.length !== 1 || !item || (!allowLocked && item.lock) || item.ktc || !Number.isInteger(item.d) || item.d < 0 || item.d > 9 ||
-    typeof item.n !== 'string' || !item.n.trim() || item.n.length > 100) {
+  if (found.length !== 1 || !eligibleEquipment(item, allowLocked)) {
     error('Món đồ không ở Hành trang, đang khóa hoặc không thuộc loại trang bị có thể chuyển.');
   }
   return item;
@@ -142,6 +165,27 @@ export function legacyMarketInventory(db: DatabaseSync) {
     db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(randomUUID(), owner);
   }
 
+  function syncEquipment(owner: string, key: string, value: string) {
+    if (key !== 'jxidle' && key !== 'jxidle_2' && key !== 'jxidle_3') return;
+    const state = decode(value)?.state;
+    if (!state || !Array.isArray(state.inv)) return;
+
+    const upsert = db.prepare(`
+      INSERT INTO market_inventory_transfers(id,owner_id,slot,uid,digest) VALUES (?,?,?,?,?)
+      ON CONFLICT(owner_id,slot,uid) DO UPDATE SET digest=excluded.digest
+      WHERE consumed=0 AND digest<>excluded.digest
+    `);
+    const inventory = new Map<number, Item | null>();
+    for (const entry of state.inv as Array<Item | null>) {
+      const uid = entry?.uid;
+      if (typeof uid !== 'number' || !Number.isSafeInteger(uid) || uid < 1 || uid === Number.MAX_SAFE_INTEGER) continue;
+      inventory.set(uid, !inventory.has(uid) && eligibleEquipment(entry, true) ? entry : null);
+    }
+    for (const [uid, item] of inventory) {
+      if (item) upsert.run(randomUUID(), owner, key, uid, fingerprint(item));
+    }
+  }
+
   function baseline(owner: string) {
     const previous = db.prepare('SELECT item_count FROM market_inventory_baselines WHERE owner_id=?').get(owner);
     if (previous) return { alreadyRecorded: true, count: Number(previous.item_count) };
@@ -219,5 +263,5 @@ export function legacyMarketInventory(db: DatabaseSync) {
     });
   }
 
-  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment };
+  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment };
 }

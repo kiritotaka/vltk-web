@@ -20,7 +20,7 @@ function game() {
     v: { x: 0, y: 100 }, QA: 0.81, Qa: 0.5, B0: { x: 0, y: 0 }, T1: { v: [0,0] },
     lA: canvas, handlers, casts: 0, moves: 0, gs: -1,
     document: { querySelectorAll: () => [] }, window: { addEventListener() {} },
-    m: () => ({ addEventListener() {} }), $8: () => 1, Hs: () => true,
+    m: () => ({ addEventListener() {} }), $8: () => 1, gameWorldZoom: 1, Hs: () => true,
     k() {}, qA() {}, W8() {}, O3() {}, eo() {}, en() {},
     X0: (x,y) => [x,y], $6: () => null, Ra: () => 1, H5: (x,y) => [x,y],
     gt: (actor,x,y) => { actor.x=x; actor.y=y; s.moves++; return true; },
@@ -202,4 +202,20 @@ test('cold intensity slows movement by phase while attack cooldown counts real s
  s.Qv=()=>[0,0];s.l.manTgt=e;s.l.moveTo=e;s.l.clickHold=false;s.Y.target=null;
  s.l.atkT=2;s.Td(.2);assert.equal(s.v.x,45);assert.equal(s.l.atkT,1.8);
  s.l.slowT=0;s.Ah(.2);s.Qv=()=>[1,0];s.Ah(.2);assert.equal(s.v.x,75,'normal movement after expiry');
+});
+
+test('80 percent zoom maps pointer coordinates back to the same skill reach',()=>{
+  const standard=game(), zoomed=game();
+  zoomed.gameWorldZoom=0.8;
+  for (const s of [standard,zoomed]) {
+    const e=enemy(s,150);
+    pointer(s,'pointerdown',150*s.gameWorldZoom,20*s.gameWorldZoom);
+    pointer(s,'pointerup',150*s.gameWorldZoom,20*s.gameWorldZoom);
+    assert.equal(s.l.manTgt,e);
+    const inWorld=s.skillCastDistance(s.v,e)-e.r/s.QA;
+    assert.ok(inWorld<s.skill.rad);
+    ticks(s,1);
+    assert.ok(s.casts>0);
+  }
+  assert.equal(standard.casts,zoomed.casts);
 });

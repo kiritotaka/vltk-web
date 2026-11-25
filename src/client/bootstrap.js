@@ -183,13 +183,16 @@
     // still holds the old game in memory. Compare the server startup token.
     // Only reload after the character is saved and the durable outbox is empty.
     const initialInstanceId = config.instanceId;
+    const initialVersion = config.version;
     let checkingVersion = false, reloadStarted = false;
     async function checkServerVersion() {
-      if (checkingVersion || reloadStarted || document.hidden || !initialInstanceId) return;
+      if (checkingVersion || reloadStarted || document.hidden || (!initialInstanceId && !initialVersion)) return;
       checkingVersion = true;
       try {
         const current = await request('/api/config');
-        if (!current.instanceId || current.instanceId === initialInstanceId) return;
+        const restart = !!current.instanceId && !!initialInstanceId && current.instanceId !== initialInstanceId;
+        const update = !!current.version && !!initialVersion && current.version !== initialVersion;
+        if (!restart && !update) return;
         try {
           window.dispatchEvent(new Event('volam:save-before-reload'));
         } catch (error) {

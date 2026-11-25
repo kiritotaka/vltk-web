@@ -38,3 +38,59 @@ test('world chat enforces sessions, records messages and blocks impersonation', 
     assert.equal((await app.inject('/client/local-chat.js')).statusCode,404);
   } finally {await app.close();db.close();}
 });
+
+test('world chat sends a server-read equipment snapshot and rejects another account item', async () => {
+  const db=openDatabase(':memory:');
+  const {app}=createServer({db,downloadAssets:false});
+  try {
+    const owner=cookie(await register(app,'attach_owner'));
+    const other=cookie(await register(app,'attach_other'));
+    const call=(session,url,payload)=>app.inject({url,method:payload===undefined?'GET':'POST',
+      headers:{cookie:session},...(payload===undefined?{}:{payload})});
+    const state=(await call(owner,'/api/storage')).json();
+    const item={uid:29,n:'Càn Khôn Giới Chỉ',d:3,lvl:10,r:4,mag:[{a:120,p:[2]}],private:'never exported'};
+    const saved=await call(owner,'/api/storage',{generation:state.generation,id:'chat-equipment',
+      operations:[{key:'jxidle',value:JSON.stringify({inv:[],eq:{ring1:item}})}]});
+    assert.equal(saved.statusCode,200);
+    const payload={body:'',attachment:{character:'jxidle',uid:29,name:'forged'}};
+    assert.equal((await call(other,'/api/chat/messages',payload)).statusCode,409);
+    const post=await call(owner,'/api/chat/messages',payload);
+    assert.equal(post.statusCode,201,post.body);
+    const {message}=post.json();
+    assert.equal(message.body,'[Càn Khôn Giới Chỉ]');
+    assert.equal(message.item.n,item.n);
+    assert.deepEqual(message.item.mag,item.mag);
+    assert.equal(message.item.uid,undefined);
+    assert.equal(message.item.private,undefined);
+    const incoming=(await call(other,'/api/chat/messages')).json().messages;
+    assert.deepEqual(incoming,[message]);
+  } finally {await app.close();db.close();}
+});
+
+test('local chat sends an attachment-only message and hands it to the native item renderer', async () => {
+  const {readFileSync}=require('node:fs');
+  const vm=require('node:vm');
+  const body={uid:29,n:'Nhẫn',d:3};
+  const sent=[];
+  const scope={
+    H:{}, ex:()=>{}, $g:()=>{}, yl:()=>{}, y8:()=> 'jxidle',
+    BA:()=>{}, T2:()=>{}, setInterval:()=>{}, k:()=>{}, ai:()=>true,
+    document:{hidden:false,body:{classList:{remove(){}}},getElementById:()=>null,addEventListener(){}},
+    async fetch(_url,options) {
+      if(options.method==='POST') sent.push(JSON.parse(options.body));
+      return {ok:true,json:async()=>({messages:sent.length?[{id:1,username:'sender',body:'[Nhẫn]',createdAt:2,item:{n:'Nhẫn',d:3}}]:[]})};
+    },
+  };
+  scope.window=scope;
+  scope.lr=value=>{ scope.H.att=value; };
+  vm.runInNewContext(readFileSync('src/client/local-chat.js','utf8'),scope);
+  await new Promise(resolve=>setImmediate(resolve));
+  scope.H.att=body;
+  await scope.yl('');
+  assert.deepEqual(sent,[{body:'',attachment:{character:'jxidle',uid:29}}]);
+  assert.equal(scope.H.att,null);
+  assert.equal(scope.H.msgs[0].sys,false);
+  assert.equal(scope.H.msgs[0].item.n,'Nhẫn');
+  assert.equal(scope.ai(scope.H.msgs[0]),false);
+  assert.equal(scope.ai({id:99}),true);
+});

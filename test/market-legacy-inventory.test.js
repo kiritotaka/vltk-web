@@ -32,12 +32,12 @@ test('an approved existing character item is moved once and stale saves cannot r
     const staleStash=JSON.stringify({items:[item,carry]});
     assert.equal((await write(seller,base.generation,'first',{jxidle:source,jxidle_bak:source,jxidle_stash_bak:staleStash})).statusCode,200);
     assert.equal((await write(buyer,(await read(buyer)).generation,'new-character',{jxidle:JSON.stringify({inv:[]})})).statusCode,200);
-    assert.deepEqual(await stock(seller),[]);
+    assert.equal((await stock(seller)).length,2);
     const store=createMarket(db);
     const target=store.approveTransfer('transfer_seller','jxidle',item.uid);
     assert.equal(store.approveTransfer('transfer_seller','jxidle',item.uid),target);
-    assert.equal((await stock(seller))[0].legacy,true);
-    assert.deepEqual((await stock(seller))[0].item,item);
+    assert.equal((await stock(seller)).find(row=>row.id===target).legacy,true);
+    assert.deepEqual((await stock(seller)).find(row=>row.id===target).item,item);
     store.issue('transfer-funds','transfer_buyer',{currency:'gold',amount:25});
     const sell={action:'sell',target,character:'jxidle',price:20,currency:'gold',requestId:'list-original'};
     assert.equal((await marketOrders(buyer,sell)).statusCode,409);
@@ -46,7 +46,7 @@ test('an approved existing character item is moved once and stale saves cannot r
       WHEN NEW.request_id='list-original' BEGIN SELECT RAISE(ABORT,'forced transfer rollback'); END`);
     assert.equal((await marketOrders(seller,sell)).statusCode,500);
     assert.equal((await read(seller)).entries.jxidle,source);
-    assert.equal((await stock(seller)).length,1);
+    assert.equal((await stock(seller)).length,2);
     db.exec('DROP TRIGGER fail_transfer');
 
     const listed=await marketOrders(seller,sell);
@@ -64,13 +64,13 @@ test('an approved existing character item is moved once and stale saves cannot r
 
     const cancelled=await marketOrders(seller,{action:'cancel',target:listed.json().listingId,requestId:'cancel-original'});
     assert.equal(cancelled.statusCode,200,cancelled.body);
-    assert.deepEqual((await stock(seller))[0].item,item);
+    assert.deepEqual((await stock(seller)).find(row=>row.id===target).item,item);
     const relisted=await marketOrders(seller,{...sell,requestId:'relist-original'});
     assert.equal(relisted.statusCode,200,relisted.body);
     const listing=relisted.json().listingId;
     assert.equal((await marketOrders(buyer,{action:'buy',target:listing,requestId:'buy-original'})).statusCode,200);
     assert.equal((await marketOrders(buyer,{action:'receive',target:listing,character:'jxidle',requestId:'receive-original'})).statusCode,200);
     assert.deepEqual((await stock(buyer))[0].item,item);
-    assert.deepEqual(await stock(seller),[]);
+    assert.ok((await stock(seller)).every(row=>row.id!==target));
   } finally {await app.close();db.close();}
 });

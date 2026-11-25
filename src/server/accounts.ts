@@ -101,14 +101,23 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
     if (!batch) fail(400, 'Invalid batch');
     validate(batch!.operations);
     if (typeof batch!.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(batch!.id)) fail(400, 'Invalid batch ID');
-    if (batch!.generation !== read(request).generation) fail(409, 'Database đã thay đổi. Vui lòng tải lại trang.');
     db.exec('BEGIN IMMEDIATE');
     try {
+      const current = read(request);
+      if (batch!.generation !== current.generation) fail(409, 'Database đã thay đổi. Vui lòng tải lại trang.');
       if (!db.prepare('SELECT 1 FROM account_batches WHERE account_id=? AND id=?').get(user.id, batch!.id)) {
-        assertRebirthDisabled(batch!.operations, read(request).entries);
+        assertRebirthDisabled(batch!.operations, current.entries);
         const put = db.prepare('INSERT INTO account_storage VALUES (?,?,?) ON CONFLICT(account_id,key) DO UPDATE SET value=excluded.value');
         const remove = db.prepare('DELETE FROM account_storage WHERE account_id=? AND key=?');
-        for (const op of batch!.operations) op.value === null ? remove.run(user.id, op.key) : put.run(user.id, op.key, transfer.sanitize(user.id, op.key, op.value));
+        for (const op of batch!.operations) {
+          if (op.value === null) {
+            remove.run(user.id, op.key);
+          } else {
+            const value = transfer.sanitize(user.id, op.key, op.value);
+            put.run(user.id, op.key, value);
+            transfer.syncEquipment(user.id, op.key, value);
+          }
+        }
         db.prepare('INSERT INTO account_batches VALUES (?,?)').run(user.id, batch!.id);
         db.prepare('UPDATE accounts SET initialized=1 WHERE id=?').run(user.id);
       }

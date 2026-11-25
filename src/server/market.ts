@@ -87,6 +87,10 @@ export function createMarket(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS market_orders_status ON market_orders(status, created_at, id);
     CREATE INDEX IF NOT EXISTS market_orders_seller ON market_orders(seller_id, created_at);
     CREATE INDEX IF NOT EXISTS market_orders_buyer ON market_orders(buyer_id, created_at);
+    CREATE TABLE IF NOT EXISTS market_order_seller_slots (
+      order_id TEXT PRIMARY KEY REFERENCES market_orders(id),
+      slot TEXT NOT NULL CHECK(slot IN ('jxidle','jxidle_2','jxidle_3'))
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS market_receipts (
       owner_id TEXT NOT NULL REFERENCES accounts(id),
       request_id TEXT NOT NULL,
@@ -150,6 +154,14 @@ export function createMarket(db: DatabaseSync) {
       let listingId = data.target;
       let reloadCharacter = false;
       if (data.action === 'sell') {
+        const slot = data.character ?? 'jxidle';
+        const active = db.prepare(`
+          SELECT count(*) AS count FROM market_orders o
+          LEFT JOIN market_order_seller_slots s ON s.order_id=o.id
+          LEFT JOIN market_character_items c ON c.item_id=o.item_id
+          WHERE o.seller_id=? AND o.status='active' AND coalesce(s.slot,c.slot,'jxidle')=?
+        `).get(owner, slot);
+        if (Number(active?.count) >= 5) fail(409, 'Mỗi nhân vật chỉ được bày bán tối đa 5 vật phẩm cùng lúc.');
         const approval = data.character && legacy.check(owner, data.character, data.target);
         if (data.character && approval && !approval.consumed) {
           const item = legacy.take(owner, data.character, approval);
@@ -164,6 +176,7 @@ export function createMarket(db: DatabaseSync) {
         listingId = randomUUID();
         db.prepare('INSERT INTO market_orders(id,item_id,seller_id,status,price,currency,created_at) VALUES (?,?,?,\'active\',?,?,?)')
           .run(listingId, data.target, owner, data.price, data.currency, Date.now());
+        db.prepare('INSERT INTO market_order_seller_slots VALUES (?,?)').run(listingId, slot);
       } else {
         const listing = db.prepare('SELECT * FROM market_orders WHERE id=?').get(listingId) as Listing | undefined;
         if (!listing) fail(404, 'Không tìm thấy tin Chợ.');

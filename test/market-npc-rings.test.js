@@ -38,7 +38,7 @@ test('the NPC issues two real rings into Hành trang and records ownership atomi
     assert.equal(equipment.length,2);
     assert.ok(equipment.every(item=>item.n==='Càn Khôn Giới Chỉ'&&item.r===4&&item.mag.some(line=>line.p.includes(2))));
     assert.equal((await save(seller,previous.generation,'stale',original)).statusCode,409);
-    const listed=(await req(seller,'/api/market/inventory/jxidle')).json().items;
+    const listed=(await req(seller,'/api/market/inventory/jxidle')).json().items.filter(row=>row.item.uid>=100);
     assert.equal(listed.length,2);
     assert.deepEqual(listed.map(row=>row.item.uid).sort(),[100,101]);
     const order={action:'sell',requestId:'sell-npc-ring',character:'jxidle',target:listed[0].id,price:1,currency:'gold'};

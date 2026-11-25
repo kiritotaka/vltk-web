@@ -23,7 +23,11 @@ test('one inventory baseline covers existing eligible gear without changing char
     const list=async slot=>(await req('/api/market/inventory/'+slot)).json().items;
     const market=createMarket(db);
     assert.throws(()=>market.baselineInventory('baseline_owner'),/chưa có nhân vật/);
-    assert.equal((await update('initial',{jxidle:main,jxidle_2:alternate})).statusCode,200);
+    // Existing accounts can have persisted saves from before automatic sync.
+    const owner = db.prepare('SELECT id FROM accounts WHERE username=?').get('baseline_owner').id;
+    const seed = db.prepare('INSERT INTO account_storage VALUES (?,?,?)');
+    seed.run(owner, 'jxidle', main);
+    seed.run(owner, 'jxidle_2', alternate);
     assert.deepEqual(await list('jxidle'),[]);
     assert.deepEqual(market.baselineInventory('baseline_owner'),{alreadyRecorded:false,count:4});
     assert.deepEqual((await req('/api/storage')).json().entries,{jxidle:main,jxidle_2:alternate});
@@ -34,7 +38,7 @@ test('one inventory baseline covers existing eligible gear without changing char
     ]})})).statusCode,200);
     assert.deepEqual(market.baselineInventory('baseline_owner'),{alreadyRecorded:true,count:4});
     const items=await list('jxidle');
-    assert.deepEqual(items.map(item=>item.name).sort(),[unlocked.n,locked.n].sort());
+    assert.deepEqual(items.map(item=>item.name).sort(),[unlocked.n,locked.n,replaced.n,'Mới từ trình duyệt'].sort());
     const gear=items.find(item=>item.name===locked.n);
     const listing=await req('/api/market/transactions',{action:'sell',requestId:'baseline-sell',target:gear.id,character:'jxidle',price:5,currency:'gold'});
     assert.equal(listing.statusCode,200,listing.body);

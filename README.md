@@ -590,10 +590,9 @@ món về ô ban đầu. Người mua mở nhân vật muốn nhận rồi bấm
 **Hàng của tôi**. Phần Hành trang này có 40 chỗ do máy chủ quản lý, bao gồm
 chỗ tạm giữ cho tin đang bán.
 
-Đồ trong save cũ chỉ hiện ở **Bày bán** khi người vận hành đã đối chiếu
-và phê duyệt đúng món theo ô nhân vật và UID. Sau khi phê duyệt, người chơi
-tự chọn món và giá. Lúc ký gửi, món gốc rời khỏi save. Nếu hủy, món trở
-về mục **Vật phẩm giao dịch** của cùng nhân vật.
+Lúc ký gửi đồ trong Hành trang, món gốc rời khỏi save. Nếu hủy, món trở
+về mục **Vật phẩm giao dịch** của cùng nhân vật. Các lệnh quản trị dưới
+đây còn dùng được để ghi nhận riêng bản lưu chưa đồng bộ từ trình duyệt.
 
 ```powershell
 node tools/issue-market-assets.js ref-001 ten_tai_khoan approve-transfer jxidle 42
@@ -613,6 +612,14 @@ Tinh anh cộng 0,1 điểm phần trăm vào tỷ lệ map. Mỗi điểm may m
 **Thần Trang Sứ Giả → Càn Khôn Giới Chỉ** cấp hai nhẫn vào Hành trang
 mỗi tài khoản một lần trên máy chủ production. Máy chủ ghi quyền sở hữu
 khi cấp, nên nhẫn tự xuất hiện ở **Chợ → Bày bán**.
+
+Khi save nhân vật đồng bộ, máy chủ tự ghi nhận trang bị hợp lệ trong
+Hành trang. Mở **Chợ → Bày bán** sẽ đồng bộ lại nhân vật đang chơi
+trước khi tải danh sách. Món khóa, đồ đang mặc và kho chung không hiện
+trong danh sách bán. Nguồn ghi nhận là save đã đồng bộ theo tài khoản,
+ô nhân vật và UID, với bản ghi ký gửi hoặc đã chuyển được giữ riêng.
+Mỗi nhân vật có tối đa 5 tin đang bày bán. Hủy hoặc bán xong sẽ giải
+phóng một chỗ.
 
 Mỗi lần cấp dùng một mã riêng. Chạy lại cùng lệnh với cùng mã giữ nguyên
 kết quả. Sau khi mua, người mua nhận vật phẩm về Hành trang hoặc Kho Chợ theo

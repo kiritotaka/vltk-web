@@ -89,6 +89,11 @@ var localMarket = (() => {
     const params = new URLSearchParams({ q: state.query, currency: state.currency, sort: state.sort, page: String(state.page) });
     const character = currentSlot();
     try {
+      if (state.tab === 'sell' && character && typeof window !== 'undefined' && window.localGameStorage) {
+        await window.localGameStorage.flush();
+        if (window.localGameStorage.pending) throw new Error('Hãy đợi Hành trang đồng bộ rồi thử lại.');
+        if (version !== revision || m('#localMarket') !== root || currentSlot() !== character) return;
+      }
       const [mine, catalog, inventory] = await Promise.all([api('mine'),
         state.tab === 'buy' ? api('listings?' + params) : null,
         state.tab === 'sell' && character ? api('inventory/' + character) : { items: [] },
@@ -136,7 +141,7 @@ var localMarket = (() => {
             }
             void transact(root, key, {
               action: 'sell', target: item.id, price: price.valueAsNumber, currency: unit.value, accountId: mine.accountId,
-              ...(item.item ? { character } : {}),
+              ...(character ? { character } : {}),
             });
           });
           sell.disabled = !!pending;
@@ -178,6 +183,7 @@ var localMarket = (() => {
 
   function open(tab = 'buy') {
     state.tab = ['buy', 'sell', 'mine'].includes(tab) ? tab : 'buy';
+    if (state.tab === 'sell' && typeof window !== 'undefined' && window.localGameStorage && typeof $ === 'function') $();
     const tabs = [['buy', 'Mua'], ['sell', 'Bày bán'], ['mine', 'Hàng của tôi']];
     J(`<section id="localMarket">
       <h3>🌐 Chợ Giang Hồ</h3>

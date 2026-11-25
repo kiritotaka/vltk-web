@@ -19,9 +19,11 @@ test('config startup token changes across restarts without requiring a manual ve
       assert.match(response.headers['cache-control'], /no-store/);
       const config = response.json();
       assert.match(config.instanceId, /^[a-f0-9-]{36}$/i);
+      assert.match(config.version, /^(?:[a-f0-9]{7,40}|build-[a-f0-9]{12})$/);
       configs.push(config);
     }
     assert.notEqual(configs[0].instanceId, configs[1].instanceId);
+    assert.equal(configs[0].version, configs[1].version);
     assert.equal((await instances[0].app.inject('/api/config')).json().instanceId, configs[0].instanceId,
       'Token remains stable until the server restarts');
   } finally {
@@ -35,7 +37,8 @@ test('config startup token changes across restarts without requiring a manual ve
 test('client compares server instance, saves player and waits for SQLite sync before reload', () => {
   const bootstrap = readFileSync('src/client/bootstrap.js','utf8');
   const game = readFileSync('src/client/core/game-loop-01.js','utf8');
-  assert.match(bootstrap, /current\.instanceId === initialInstanceId/);
+  assert.match(bootstrap, /current\.instanceId !== initialInstanceId/);
+  assert.match(bootstrap, /current\.version !== initialVersion/);
   assert.match(bootstrap, /setInterval\(checkServerVersion, 15000\)/);
   assert.match(bootstrap, /window\.dispatchEvent\(new Event\('volam:save-before-reload'\)\)/);
   assert.match(bootstrap, /await flush\(\)/);

@@ -14,6 +14,7 @@ export interface ServerServices {
   combatSandbox: boolean;
   downloadAssets: boolean;
   moduleFiles: Set<string>;
+  version: string;
   startupBundle?: { code: string; sourceMap: string };
 }
 export interface StorageOperation { key: string; value: string | null }
