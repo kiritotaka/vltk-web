@@ -4,8 +4,12 @@
   'use strict';
   if (typeof H === 'undefined' || typeof ex !== 'function') return;
   ex();
+  // The original chat initializer normally disables chat when CHAT_CFG is empty.
+  // Prevent that asynchronous startup path from undoing the local adapter.
+  $g = async function () {};
   document.body.classList.remove('nochat');
   H.state = 'ok';
+  H.subOk = true;
   H.err = '';
   H.chan = 'w';
   let lastSignature = '';
@@ -70,9 +74,8 @@
       if (input) input.value = message;
     }
   };
-  const oldOpen = na;
   // The existing chat launcher remains in place.
-  if (typeof oldOpen === 'function') {
+  if (typeof na === 'function') {
     na = function (open) {
       H.open = !!open;
       document.getElementById('chatBox')?.classList.toggle('open', !!open);
