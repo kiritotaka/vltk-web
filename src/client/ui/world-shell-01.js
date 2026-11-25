@@ -152,11 +152,7 @@ var dm = function () {
       ? Y0(a)
       : k("Bản chơi trên máy không có xếp hạng / chợ / thư");
   ((m("#u20mkt").onclick = () =>
-    typeof h0 == "function" && h0()
-      ? Y0("mkt")
-      : J(
-          '<h3>Chợ</h3><p class="desc">Chợ trong game gốc là giao dịch giữa người chơi qua máy chủ online. Bản local hiện lưu nhân vật bằng SQLite và chưa có backend giao dịch.</p><p class="dim small">Cửa hàng NPC và Kỳ Trân Các vẫn dùng được trên máy này.</p>',
-        )),
+    typeof localMarket !== "undefined" ? localMarket.open() : k("Chợ chưa khởi tạo.")),
     (m("#u20mail").onclick = e("mail")),
     (m("#u20stb").onclick = () => N1("horse")),
     (m("#u20tt").onclick = () => {
