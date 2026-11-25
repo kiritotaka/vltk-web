@@ -9,9 +9,9 @@ const { createServer } = require('../src/server/index.ts');
 const source = fs.readFileSync(path.join(__dirname,'../src/client/bootstrap.js'),'utf8');
 const { accountSnapshot: snapshot } = require('./helpers/accounts.js');
 const OUTBOX = '__volam_sqlite_outbox';
-async function boot(base, values, { failWrites = false, search = '' } = {}) {
-  const authResponse = await fetch(base + '/api/auth/login', { method:'POST', body:JSON.stringify({ username:'test_user', password:'secret123' }) });
-  const response = authResponse.ok ? authResponse : await fetch(base + '/api/auth/register', { method:'POST', body:JSON.stringify({ username:'test_user', password:'secret123' }) });
+async function boot(base, values, { failWrites = false, search = '', username = 'test_user' } = {}) {
+  const authResponse = await fetch(base + '/api/auth/login', { method:'POST', body:JSON.stringify({ username, password:'secret123' }) });
+  const response = authResponse.ok ? authResponse : await fetch(base + '/api/auth/register', { method:'POST', body:JSON.stringify({ username, password:'secret123' }) });
   assert.equal(response.status, 200);
   const cookie = response.headers.get('set-cookie').split(';')[0];
   class Storage {
@@ -182,5 +182,60 @@ test('bootstrap reports the failing API endpoint and bounds retries', async () =
     assert.equal(calls, kind === 'html' ? 1 : 2);
     assert.match(status.textContent, /Không thể mở game: \/api\/config:/);
     assert.match(status.textContent, kind === 'html' ? /JSON/ : kind === 'gateway' ? /503/ : /Failed to fetch/);
+  }
+});
+
+
+test('market updates both live sessions and rebases seller autosaves without reloading', async () => {
+  const db = openDatabase(':memory:');
+  const { app, server } = createServer({ db, downloadAssets:false });
+  await app.ready();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const makeLive = (client, state) => {
+    client.location.reload = () => assert.fail('market should keep the current page');
+    client.localGameApplyMarketChanges = (changes, apply) => apply(state, changes.filter(change => change.slot === 'jxidle'));
+    client.localStorage.setItem('jxidle', JSON.stringify(state));
+  };
+  const command = async (client, data) => {
+    const response = await client.fetch('/api/market/transactions', { method:'POST', body:JSON.stringify(data) });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  try {
+    const seller = await boot(base, new Map(), { username:'sync_seller' });
+    const buyer = await boot(base, new Map(), { username:'sync_buyer' });
+    const item = { uid:1, n:'Test ring', d:3 };
+    const sellerState = { uid:2, gold:3, inv:[item], xp:100 };
+    const buyerState = { uid:4, gold:20, inv:[], xp:200 };
+    makeLive(seller, sellerState);
+    makeLive(buyer, buyerState);
+    await Promise.all([seller.localGameStorage.flush(), buyer.localGameStorage.flush()]);
+    const { items } = await (await seller.fetch('/api/market/inventory/jxidle')).json();
+    const { listingId } = await command(seller, { action:'sell', target:items[0].id, character:'jxidle', currency:'gold', price:10, requestId:'live-list' });
+    assert.equal(await seller.localGameStorage.syncMarket(), true);
+    assert.equal(sellerState.inv.length, 0);
+    const buy = { action:'buy', target:listingId, character:'jxidle', requestId:'live-buy' };
+    await command(buyer, buy);
+    await buyer.localGameStorage.syncMarket();
+    assert.deepEqual(JSON.parse(JSON.stringify(buyerState.inv)), [{ ...item, uid:4 }]);
+    assert.equal(buyerState.gold, 10);
+    sellerState.gold += 2;
+    sellerState.xp += 5;
+    seller.localStorage.setItem('jxidle', JSON.stringify(sellerState));
+    assert.equal(await seller.localGameStorage.flush(), true);
+    assert.equal(seller.localGameStorage.pending, 0);
+    const saved = await (await seller.fetch('/api/storage')).json();
+    assert.equal(JSON.parse(saved.entries.jxidle).gold, 15);
+    assert.equal(JSON.parse(saved.entries.jxidle).xp, 105);
+    assert.equal(sellerState.gold, 15);
+    await command(buyer, buy);
+    await Promise.all([buyer.localGameStorage.syncMarket(), seller.localGameStorage.syncMarket()]);
+    assert.equal(buyerState.gold, 10);
+    assert.equal(buyerState.inv.length, 1);
+    assert.equal(sellerState.gold, 15);
+  } finally {
+    await app.close();
+    db.close();
   }
 });

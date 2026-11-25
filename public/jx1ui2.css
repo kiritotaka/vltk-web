@@ -166,10 +166,13 @@ body.nochat #modeSw{left:6px}
 #localMarket .mkt-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 0;border-bottom:1px solid #2b2a26}
 #localMarket .mkt-item{display:flex;align-items:center;gap:9px;min-width:0;flex:1 1 15rem}
 #localMarket .mkt-icon{flex:none;width:38px;height:38px;box-sizing:border-box;object-fit:contain;padding:3px;border:1px solid #675b3f;border-radius:3px;background:#11140e}
+#localMarket button.mkt-item{padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;white-space:normal;cursor:pointer}
+#localMarket button.mkt-item:hover b{text-decoration:underline}
+#localMarket .mkt-details{flex:1 1 100%;min-width:0;padding:8px;border:1px solid #675b3f;border-radius:3px}
 #localMarket .mkt-item-text{min-width:0;overflow-wrap:anywhere}
 #localMarket .mkt-item-text b,#localMarket .mkt-item-text small{display:block}
 #localMarket .mkt-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px;max-width:100%}
 #localMarket .mkt-actions input{width:7rem;min-width:0;max-width:100%;box-sizing:border-box}
 #localMarket .mkt-actions select{width:auto;min-width:0;max-width:100%}
-#localMarket .mkt-row>.cp,#localMarket .mkt-row button{white-space:nowrap}
+#localMarket .mkt-row>.cp,#localMarket .mkt-row button:not(.mkt-item){white-space:nowrap}
 @media(max-width:560px){#localMarket .mkt-item{flex-basis:100%}#localMarket .mkt-actions{flex-basis:100%}}

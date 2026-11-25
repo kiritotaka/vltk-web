@@ -30,6 +30,8 @@ for(const unit of ['gold','knb']) {
       const target=sale.json().listingId;
       const [listing]=(await req(buyer,'/api/market/listings')).json().listings;
       assert.equal(listing.item_icon,ring.ic);
+      const {uid, ...details}=ring;
+      assert.deepEqual(JSON.parse(listing.item_details),details);
       assert.equal(listing.inventory_trade,1);
 
       const buy={action:'buy',target,character:'jxidle',requestId:'inventory-purchase'};

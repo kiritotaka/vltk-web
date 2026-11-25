@@ -105,7 +105,8 @@ test('Bày bán lists the selected character inventory and submits its server it
       get childElementCount() { return this.children.length; },
       append(...nodes) { this.children.push(...nodes); },
       replaceChildren() { this.children = []; },
-      setAttribute() {},
+      attributes: {},
+      setAttribute(key, value) { this.attributes[key] = value; },
     };
   }
   const elements = new Map();
@@ -120,6 +121,8 @@ test('Bày bán lists the selected character inventory and submits its server it
   const browser = {
     URLSearchParams, y8: () => 'jxidle_2', m: selector => selector === '#localMarket' ? root : null,
     J: (_html, ready) => ready(),
+    _0: ['#ddd', '#6aa8ff'],
+    Z1: item => 'Cấp ' + item.lvl + ' · Thuộc tính ' + item.mag[0].p[0],
     document: { createElement: element },
     Option: class Option { constructor(label, value) { this.label = label; this.value = value; } },
     crypto: { randomUUID: () => 'browser-action' },
@@ -131,7 +134,7 @@ test('Bày bán lists the selected character inventory and submits its server it
     async fetch(url, options) {
       requests.push([url, options.body]);
       const data = url.endsWith('/mine') ? { accountId: 'account', wallet: { gold: 0, knb: 0 }, items: [] }
-        : url.endsWith('/inventory/jxidle_2') ? { items: [{ id: 'server-item', name: 'Nhẫn', item: { lvl: 10, ic: 'img/i/g44.png' } }] }
+        : url.endsWith('/inventory/jxidle_2') ? { items: [{ id: 'server-item', name: 'Nhẫn', item: { lvl: 10, r: 1, ic: 'img/i/g44.png', mag: [{p:[15]}] } }] }
           : { listingId: 'list-id' };
       return { ok: true, json: async () => data };
     },
@@ -143,6 +146,12 @@ test('Bày bán lists the selected character inventory and submits its server it
   const [item, actions] = row.children;
   assert.equal(item.children[0].src, '/img/i/g44.png');
   assert.equal(item.children[1].children[0].textContent, 'Nhẫn');
+  assert.equal(item.children[1].children[0].attributes.style, 'color:#6aa8ff');
+  item.onclick();
+  assert.equal(item.attributes['aria-expanded'], 'true');
+  assert.match(row.children[2].innerHTML, /Thuộc tính 15/);
+  item.onclick();
+  assert.equal(row.children[2].hidden, true);
   const [price, currency, sellButton] = actions.children;
   price.valueAsNumber = 25;
   currency.value = 'gold';

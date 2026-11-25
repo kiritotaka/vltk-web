@@ -32,7 +32,7 @@
       if (!response.ok) {
         if ([502, 503, 504].includes(response.status) && attempt + 1 < attempts) continue;
         const detail = await response.json().catch(() => ({}));
-        throw new Error(`${url}: ${detail.error || `HTTP ${response.status}`}`);
+        throw Object.assign(new Error(`${url}: ${detail.error || `HTTP ${response.status}`}`), { status: response.status });
       }
       try { return await response.json(); }
       catch (error) {
@@ -90,16 +90,105 @@
   }
   let queue = [], generation, flushing = null;
   const persist = () => native.set.call(storage, OUTBOX, JSON.stringify({ generation, queue }));
-  function flush() {
+  function applyChanges(character, changes) {
+    for (const change of changes) {
+      if (change.unit) {
+        const amount = Number(character[change.unit] ?? 0) + change.delta;
+        if (!Number.isSafeInteger(amount)) throw new Error('Số dư nhân vật không hợp lệ.');
+        character[change.unit] = amount;
+      } else if (change.add) {
+        for (const item of change.add) {
+          character.uid = Math.max(character.uid || 1, item.uid + 1);
+          let replacement;
+          const reassign = value => {
+            if (!value || typeof value !== 'object') return;
+            if (value.uid === item.uid && typeof value.n === 'string') {
+              replacement ??= character.uid++;
+              value.uid = replacement;
+            }
+            Object.values(value).forEach(reassign);
+          };
+          reassign(character);
+          character.inv.push(JSON.parse(JSON.stringify(item)));
+        }
+      } else {
+        const remove = value => {
+          if (!value || typeof value !== 'object') return false;
+          if (value.uid === change.remove && typeof value.n === 'string') return true;
+          for (const key of Object.keys(value).reverse()) {
+            if (remove(value[key])) {
+              if (Array.isArray(value)) value.splice(Number(key), 1);
+              else delete value[key];
+            }
+          }
+          return false;
+        };
+        remove(character);
+      }
+    }
+  }
+  function rebaseValue(key, value, changes) {
+    const applicable = changes.filter(change => key === change.slot || key === change.slot + '_bak');
+    if (value === null || !applicable.length) return value;
+    const envelope = JSON.parse(value);
+    const encoded = typeof envelope.d === 'string' && typeof envelope.h === 'string';
+    const character = encoded ? JSON.parse(envelope.d) : envelope;
+    applyChanges(character, applicable);
+    if (!encoded) return JSON.stringify(character);
+    const d = JSON.stringify(character);
+    let left = 3735928559, right = 1103547991;
+    const content = 'jx-idle-v1:' + d;
+    for (let index = 0; index < content.length; index++) {
+      const code = content.charCodeAt(index);
+      left = Math.imul(left ^ code, 2654435761);
+      right = Math.imul(right ^ code, 1597334677);
+    }
+    left = Math.imul(left ^ (left >>> 16), 2246822507) ^ Math.imul(right ^ (right >>> 13), 3266489909);
+    right = Math.imul(right ^ (right >>> 16), 2246822507) ^ Math.imul(left ^ (left >>> 13), 3266489909);
+    const h = (4294967296 * (2097151 & right) + (left >>> 0)).toString(36);
+    return JSON.stringify({ ...envelope, d, h });
+  }
+  const fetchChanges = since => request('/api/market/character-updates?generation=' + encodeURIComponent(since));
+  const rebaseQueue = (batches, update) => batches.map(batch => ({ ...batch, generation: update.generation,
+    operations: batch.operations.map(({ key, value }) => ({ key, value: rebaseValue(key, value, update.changes) }))
+  }));
+  async function syncChanges() {
+    const update = await fetchChanges(generation);
+    if (update.generation === generation) return false;
+    if (!update.changes) throw new Error('Không thể đồng bộ phiên bản dữ liệu nhân vật này.');
+    const values = new Map();
+    for (const { slot } of update.changes) {
+      for (const key of [slot, slot + '_bak']) {
+        const value = storage.getItem(key);
+        if (value !== null && !values.has(key)) values.set(key, rebaseValue(key, value, update.changes));
+      }
+    }
+    const rebased = rebaseQueue(queue, update);
+    const redraw = window.localGameApplyMarketChanges?.(update.changes, applyChanges);
+    for (const [key, value] of values) native.set.call(storage, key, value);
+    generation = update.generation;
+    queue = rebased;
+    persist();
+    try { redraw?.(); } catch (error) { console.warn('Unable to redraw market changes', error); }
+    return true;
+  }
+  function flush(checkUpdates = false) {
     if (flushing) return flushing;
     // Navigation callers must await an in-flight autosave as well as a new save.
     flushing = (async () => {
       try {
+        if (checkUpdates === true) await syncChanges();
         while (queue.length) {
-          await request('/api/storage', post(queue[0]));
+          try {
+            await request('/api/storage', post(queue[0]));
+          } catch (error) {
+            if (error.status === 409 && await syncChanges()) continue;
+            throw error;
+          }
           queue.shift(); persist();
         }
         status.hidden = true;
+        return true;
       } catch (error) {
         status.hidden = false; status.textContent = `Chưa đồng bộ với máy chủ: ${error.message}. Dữ liệu đang chờ trên trình duyệt; sẽ tự thử lại.`;
       }
@@ -122,7 +211,13 @@
     if (!state.initialized) state = await request('/api/storage/init', post({ entries:entries() }));
     let previous;
     try { previous = JSON.parse(storage.getItem(OUTBOX) || 'null'); } catch {}
-    if (previous?.generation === generation && Array.isArray(previous.queue)) queue = previous.queue;
+    if (Array.isArray(previous?.queue) && previous.queue.length) {
+      if (previous.generation === generation) queue = previous.queue;
+      else if (previous.generation?.split(':')[0] === generation.split(':')[0]) {
+        const update = await fetchChanges(previous.generation);
+        if (update.changes) { queue = rebaseQueue(previous.queue, update); generation = update.generation; }
+      }
+    }
     // Replay writes left by a reload before reading the authoritative database snapshot.
     for (const batch of queue) await request('/api/storage', post(batch));
     queue = []; persist(); state = await request('/api/storage');
@@ -150,7 +245,11 @@
       sessionStorage.removeItem('jxidle_in');
       await flush();
     }
-    window.localGameStorage = { flush, get pending() { return queue.length; } };
+    async function syncMarket() {
+      if (flushing) await flushing;
+      return flush(true);
+    }
+    window.localGameStorage = { flush, syncMarket, get pending() { return queue.length; } };
     window.addEventListener('online', flush);
     setInterval(flush, 5000);
     // Durable outbox survives navigation. Best-effort delivery also covers closing the tab.
@@ -178,6 +277,8 @@
     if (loading && window.localGameAssets) await loading.preload(window.localGameAssets);
     loading?.finish();
     status.hidden = queue.length === 0;
+    setInterval(() => { if (!document.hidden) void syncMarket(); }, 4000);
+    window.addEventListener('focus', syncMarket);
 
     // A restarted server may be running newer JS/CSS/API code while this tab
     // still holds the old game in memory. Compare the server startup token.

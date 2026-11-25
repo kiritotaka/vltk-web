@@ -262,6 +262,7 @@ export function createMarket(db: DatabaseSync) {
     const rows = db.prepare(`
       SELECT o.id,o.price,o.currency,i.name AS item_name,a.username AS seller_name,o.seller_id=? AS own,
         json_extract(c.payload,'$.ic') AS item_icon,
+        json_remove(c.payload,'$.uid') AS item_details,
         EXISTS(SELECT 1 FROM market_inventory_transfers t WHERE t.id=i.id AND t.owner_id=o.seller_id AND t.consumed=1) AS inventory_trade
       FROM market_orders o JOIN market_items i ON i.id=o.item_id JOIN accounts a ON a.id=o.seller_id
       LEFT JOIN market_character_items c ON c.item_id=i.id
@@ -281,6 +282,7 @@ export function createMarket(db: DatabaseSync) {
     const orders = db.prepare(`
       SELECT o.id,o.status,o.price,o.currency,i.name AS item_name,o.seller_id=? AS own,
         json_extract(c.payload,'$.ic') AS item_icon,
+        json_remove(c.payload,'$.uid') AS item_details,
         CASE WHEN o.seller_id=? THEN o.seller_received ELSE o.buyer_received END AS received
       FROM market_orders o JOIN market_items i ON i.id=o.item_id
       LEFT JOIN market_character_items c ON c.item_id=i.id
@@ -317,7 +319,7 @@ export function createMarket(db: DatabaseSync) {
   const characterItems = (owner: string, slot: CharacterSlot) =>
     [...characters.available(owner, slot), ...legacy.available(owner, slot)];
 
-  return { browse, inventory, execute, issue, characterItems, approveTransfer, baselineInventory, claimTraderRings };
+  return { browse, inventory, execute, issue, characterItems, approveTransfer, baselineInventory, claimTraderRings, updates: legacy.updates };
 }
 
 export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }) {
@@ -328,6 +330,8 @@ export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUs
     sendJson(reply, 200, { items: market.characterItems(requireUser(request).id, marketCharacterSlot(request.params.slot)) }));
   app.post<{ Params: { slot: string } }>('/api/market/trader-rings/:slot', (request, reply) =>
     sendJson(reply, 200, market.claimTraderRings(requireUser(request).id, marketCharacterSlot(request.params.slot))));
+  app.get<{ Querystring: { generation?: string } }>('/api/market/character-updates', (request, reply) =>
+    sendJson(reply, 200, market.updates(requireUser(request).id, String(request.query.generation ?? ''))));
   app.get('/api/market/mine', (request, reply) =>
     sendJson(reply, 200, market.inventory(requireUser(request).id)));
   app.post('/api/market/transactions', (request, reply) =>

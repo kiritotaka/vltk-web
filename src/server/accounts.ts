@@ -104,8 +104,8 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
     db.exec('BEGIN IMMEDIATE');
     try {
       const current = read(request);
-      if (batch!.generation !== current.generation) fail(409, 'Database đã thay đổi. Vui lòng tải lại trang.');
       if (!db.prepare('SELECT 1 FROM account_batches WHERE account_id=? AND id=?').get(user.id, batch!.id)) {
+        if (batch!.generation !== current.generation) fail(409, 'Phiên bản dữ liệu nhân vật đã thay đổi.');
         assertRebirthDisabled(batch!.operations, current.entries);
         const put = db.prepare('INSERT INTO account_storage VALUES (?,?,?) ON CONFLICT(account_id,key) DO UPDATE SET value=excluded.value');
         const remove = db.prepare('DELETE FROM account_storage WHERE account_id=? AND key=?');

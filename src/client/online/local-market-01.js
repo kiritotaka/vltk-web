@@ -4,6 +4,7 @@ var localMarket = (() => {
   let revision = 0;
   let submitting = false;
   let inventoryCache = null;
+  let walletLabel = '';
   const currentSlot = () => typeof y8 === 'function' ? y8() : undefined;
   const money = (amount, unit) => Number(amount).toLocaleString('vi-VN') + (unit === 'knb' ? ' KNB' : ' lượng');
 
@@ -23,23 +24,56 @@ var localMarket = (() => {
     return node;
   }
 
-  function row(name, detail, icon) {
+  const itemIcon = icon => typeof icon === 'string' && /^\/?img\/[a-z0-9_/-]+\.(png|webp|jpg)$/i.test(icon);
+
+  function row(name, detail, icon, equipment) {
+    const data = typeof equipment === 'string' ? JSON.parse(equipment) : equipment;
+    const rarity = Number(data?.r);
+    const color = typeof _0 !== 'undefined' && Number.isInteger(rarity) ? _0[rarity] : undefined;
     const node = document.createElement('div');
     node.className = 'mkt-row';
-    const item = document.createElement('div');
+    const item = document.createElement(data ? 'button' : 'div');
     item.className = 'mkt-item';
-    if (typeof icon === 'string' && /^\/?img\/[a-z0-9_/-]+\.(png|webp|jpg)$/i.test(icon)) {
+    if (data) {
+      item.type = 'button';
+      item.setAttribute('aria-expanded', 'false');
+      item.title = 'Xem thuộc tính vật phẩm';
+      let details;
+      item.onclick = () => {
+        if (details) {
+          details.hidden = !details.hidden;
+        } else {
+          details = document.createElement('div');
+          details.className = 'mkt-details';
+          try {
+            details.innerHTML = Z1({ ...data, n: name,
+              r: color ? rarity : 0, ic: itemIcon(icon) ? icon : undefined,
+              lvl: Number(data.lvl) || 1, enh: Number(data.enh) || 0,
+              ktc: data.ktc ? { k: data.ktc.k, c: Number(data.ktc.c) || 0 } : undefined,
+              mag: Array.isArray(data.mag) ? data.mag : [],
+            });
+          } catch {
+            details.textContent = 'Không đọc được thuộc tính của vật phẩm này.';
+          }
+          node.append(details);
+        }
+        item.setAttribute('aria-expanded', String(!details.hidden));
+      };
+    }
+    if (itemIcon(icon)) {
       const image = document.createElement('img');
       image.src = '/' + icon.replace(/^\//, '');
       image.alt = '';
       image.loading = 'lazy';
       image.className = 'mkt-icon';
+      if (color) image.setAttribute('style', 'border-color:' + color);
       item.append(image);
     }
     const text = document.createElement('div');
     text.className = 'mkt-item-text';
     const title = document.createElement('b');
     title.textContent = name;
+    if (color) title.setAttribute('style', 'color:' + color);
     text.append(title);
     if (detail) {
       const label = document.createElement('small');
@@ -75,8 +109,10 @@ var localMarket = (() => {
       if (!pending) return;
       status(root, 'Đang xử lý giao dịch…');
       const result = await api('transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pending });
+      if (result.reloadCharacter && !await window.localGameStorage?.syncMarket()) {
+        throw new Error('Giao dịch đã hoàn tất. Đang chờ đồng bộ Hành trang.');
+      }
       sessionStorage.removeItem(key);
-      if (result.reloadCharacter) { location.reload(); return; }
       inventoryCache = null;
       const inventoryPanel = m('#serverCharacterInventory');
       if (inventoryPanel) renderInventory(inventoryPanel);
@@ -122,18 +158,14 @@ var localMarket = (() => {
       };
       controls.replaceChildren();
       if (pending) controls.append(button('Gửi lại yêu cầu', () => void transact(root, key)));
-      const balances = [];
-      if (character && typeof o !== 'undefined' && o) {
-        balances.push('Hành trang: ' + money(o.gold || 0, 'gold') + ' · ' + money(o.knb || 0, 'knb'));
-      }
-      if (!balances.length || mine.wallet.gold || mine.wallet.knb || catalog?.listings.some(listing => !listing.inventory_trade)) {
-        balances.push('Ví Chợ: ' + money(mine.wallet.gold, 'gold') + ' · ' + money(mine.wallet.knb, 'knb'));
-      }
-      root.querySelector('#mktWallet').textContent = balances.join(' | ');
+      walletLabel = !character || typeof o === 'undefined' || !o || mine.wallet.gold || mine.wallet.knb ||
+        catalog?.listings.some(listing => !listing.inventory_trade)
+        ? 'Ví Chợ: ' + money(mine.wallet.gold, 'gold') + ' · ' + money(mine.wallet.knb, 'knb') : '';
+      drawBalance(root);
       panel.replaceChildren();
       if (catalog) {
         for (const listing of catalog.listings) {
-          const node = row(listing.item_name, 'Người bán: ' + listing.seller_name, listing.item_icon);
+          const node = row(listing.item_name, 'Người bán: ' + listing.seller_name, listing.item_icon, listing.item_details);
           const price = document.createElement('span');
           price.className = 'cp';
           price.textContent = money(listing.price, listing.currency);
@@ -154,7 +186,7 @@ var localMarket = (() => {
         root.querySelector('#mktNext').disabled = !catalog.hasMore;
       } else if (state.tab === 'sell') {
         for (const item of [...inventory.items, ...mine.items]) {
-          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + (item.item.lvl || '—') : 'Kho Chợ', item.item?.ic);
+          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + (item.item.lvl || '—') : 'Kho Chợ', item.item?.ic, item.item);
           const price = document.createElement('input');
           price.type = 'number';
           price.min = '1';
@@ -185,7 +217,7 @@ var localMarket = (() => {
         for (const order of mine.orders) {
           const label = order.status === 'active' ? 'Đang bày bán' : order.status === 'cancelled' ? 'Đã hủy'
             : order.received ? 'Đã nhận' : order.own ? 'Chờ nhận tiền' : 'Chờ nhận vật phẩm';
-          const node = row(order.item_name, label + ' · ' + money(order.price, order.currency), order.item_icon);
+          const node = row(order.item_name, label + ' · ' + money(order.price, order.currency), order.item_icon, order.item_details);
           if (order.status === 'active') addAction(node, 'Hủy', { action: 'cancel', target: order.id });
           if (order.status === 'sold' && !order.received) addAction(node, 'Nhận', { action: 'receive', target: order.id, ...(character ? { character } : {}) });
           panel.append(node);
@@ -259,7 +291,20 @@ var localMarket = (() => {
       void refresh(root);
     });
   }
-  return { open, renderInventory };
+  function drawBalance(root) {
+    const carried = currentSlot() && typeof o !== 'undefined' && o
+      ? 'Hành trang: ' + money(o.gold || 0, 'gold') + ' · ' + money(o.knb || 0, 'knb') : '';
+    root.querySelector('#mktWallet').textContent = [carried, walletLabel].filter(Boolean).join(' | ');
+  }
+
+  function characterChanged() {
+    inventoryCache = null;
+    const root = m('#localMarket');
+    if (!root) return;
+    drawBalance(root);
+    if (!submitting && state.tab !== 'sell' && !root.querySelector('.mkt-details:not([hidden])')) void refresh(root);
+  }
+  return { open, renderInventory, characterChanged };
 })();
 
 if (typeof Y0 === 'function') {

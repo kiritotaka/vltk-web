@@ -4,6 +4,8 @@ import type { CharacterSlot } from './market-character-inventory.ts';
 
 type Item = { uid: number; n: string; d: number; lock?: boolean; ktc?: unknown };
 type State = { inv?: unknown[]; [key: string]: unknown };
+type Change = { slot: CharacterSlot; unit: 'gold' | 'knb'; delta: number } |
+  { slot: CharacterSlot; add: Item[] } | { slot: CharacterSlot; remove: number };
 type Approval = { id: string; uid: number; digest: string; consumed: number };
 
 function error(message: string): never {
@@ -102,6 +104,11 @@ function strip(state: State, ids: Set<number>, digests: Set<string>): boolean {
 
 export function legacyMarketInventory(db: DatabaseSync) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS market_character_updates (
+      owner_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      before TEXT NOT NULL, after TEXT NOT NULL, change TEXT NOT NULL,
+      PRIMARY KEY(owner_id,before)
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS market_inventory_baselines (
       owner_id TEXT PRIMARY KEY REFERENCES accounts(id),
       item_count INTEGER NOT NULL
@@ -142,6 +149,29 @@ export function legacyMarketInventory(db: DatabaseSync) {
     return id;
   }
 
+  function recordUpdate(owner: string, change: Change) {
+    const before = db.prepare('SELECT generation FROM accounts WHERE id=?').get(owner)!.generation as string;
+    const after = randomUUID();
+    db.prepare('INSERT INTO market_character_updates VALUES (?,?,?,?)').run(owner, before, after, JSON.stringify(change));
+    db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(after, owner);
+  }
+
+  function updates(owner: string, since: string) {
+    const epoch = db.prepare("SELECT value FROM metadata WHERE key='generation'").get()!.value;
+    const current = db.prepare('SELECT generation FROM accounts WHERE id=?').get(owner)!.generation;
+    const generation = epoch + ':' + String(current);
+    const changes: Change[] = [];
+    let cursor = since.startsWith(epoch + ':') ? since.slice(String(epoch).length + 1) : '';
+    const next = db.prepare('SELECT after,change FROM market_character_updates WHERE owner_id=? AND before=?');
+    while (cursor && cursor !== current) {
+      const row = next.get(owner, cursor);
+      if (!row) break;
+      changes.push(JSON.parse(row.change as string));
+      cursor = row.after as string;
+    }
+    return { generation, changes: cursor === current ? changes : null };
+  }
+
   function changeBalance(owner: string, slot: CharacterSlot, unit: 'gold' | 'knb', delta: number) {
     const save = load(owner, slot);
     const amount = Number(save.state[unit] ?? 0);
@@ -151,7 +181,7 @@ export function legacyMarketInventory(db: DatabaseSync) {
     if (next < 0) error(unit === 'knb' ? 'Hành trang không đủ KNB.' : 'Hành trang không đủ lượng.');
     save.state[unit] = next;
     db.prepare('UPDATE account_storage SET value=? WHERE account_id=? AND key=?').run(save.encode(), owner, slot);
-    db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(randomUUID(), owner);
+    recordUpdate(owner, { slot, unit, delta });
   }
 
   function receiveTrustedEquipment(owner: string, slot: CharacterSlot, equipment: Omit<Item, 'uid'>[]) {
@@ -173,8 +203,7 @@ export function legacyMarketInventory(db: DatabaseSync) {
     save.state.uid = next + equipment.length;
     db.prepare('UPDATE account_storage SET value=? WHERE account_id=? AND key=?').run(save.encode(), owner, slot);
     for (let uid = next; uid < next + equipment.length; uid++) approve(owner, slot, uid);
-    // Make existing browser outboxes reload the new Hành trang instead of overwriting it.
-    db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(randomUUID(), owner);
+    recordUpdate(owner, { slot, add: inventory.slice(-equipment.length) });
   }
 
   function syncEquipment(owner: string, key: string, value: string) {
@@ -259,6 +288,7 @@ export function legacyMarketInventory(db: DatabaseSync) {
       const current = sanitize(owner, key, previous);
       if (current !== previous) update.run(current, owner, key);
     }
+    recordUpdate(owner, { slot, remove: approval.uid });
     return { name: item.n, payload: JSON.stringify(item) };
   }
 
@@ -275,5 +305,5 @@ export function legacyMarketInventory(db: DatabaseSync) {
     });
   }
 
-  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment, changeBalance };
+  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment, changeBalance, updates };
 }

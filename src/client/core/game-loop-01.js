@@ -678,4 +678,16 @@ window.addEventListener('volam:save-before-reload', () => {
   if (typeof o !== 'undefined' && o && o.fac && typeof $ === 'function') $();
 });
 
+window.localGameApplyMarketChanges = (changes, apply) => {
+  if (!o || !o.fac) return;
+  const active = changes.filter(change => change.slot === y8());
+  if (!active.length) return;
+  apply(o, active);
+  return () => {
+    localMarket.characterChanged();
+    const panel = m('#t-inv');
+    if (panel && !panel.classList.contains('hidden')) An();
+  };
+};
+
 setInterval(k_, 300 * 1e3);
