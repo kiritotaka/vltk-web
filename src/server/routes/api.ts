@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { registerAccounts } from '../accounts.ts';
 import { registerLocalChat } from '../chat.ts';
+import { registerMarket } from '../market.ts';
 import { parseJsonBody, sendJson } from '../http.ts';
 import type { ServerServices } from '../types.ts';
 
@@ -13,6 +14,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ServerServices
   const instanceId = randomUUID();
   const storage = registerAccounts(app, db);
   registerLocalChat(app, db, storage.requireUser);
+  registerMarket(app, db, storage.requireUser);
   app.get('/api/config', (_request, reply) => sendJson(reply, 200,
     { development, instanceId, ...(development && combatSandbox ? { combatSandbox: true } : {}) }));
   app.get('/api/health', (_request, reply) => sendJson(reply, 200, { ok: true, database: 'sqlite', mode: 'local' }));

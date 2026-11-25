@@ -1,110 +1,196 @@
-// Reuse the existing in-game Market modal. This is the read-only Supabase
-// catalog phase; transactions require a server-authoritative escrow protocol.
+// The existing Chợ modal uses Fastify for both browsing and settlement.
 var localMarket = (() => {
-  const project = 'https://atchexthhvseabeacotj.supabase.co';
-  const key = 'sb_publishable_0uCQ2M95mnhLMsmki5YeDg_tIPXMLdw';
-  const state = { tab:'buy', query:'', currency:'', sort:'new', page:0 };
-  const escapeHtml = value => typeof D === 'function' ? D(String(value)) : String(value).replace(/[&<>"']/g,
-    char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
-  const displayMoney = (amount, cur) =>
-    Number(amount).toLocaleString('vi-VN') + (cur === 'knb' ? ' KNB' : ' lượng');
+  const state = { tab: 'buy', query: '', currency: '', sort: 'new', page: 0 };
+  let revision = 0;
+  let submitting = false;
+  const money = (amount, unit) => Number(amount).toLocaleString('vi-VN') + (unit === 'knb' ? ' KNB' : ' lượng');
 
-  async function readListings() {
-    const params = new URLSearchParams({
-      select: 'id,seller_name,item_name,price,currency,created_at',
-      status: 'eq.active',
-      order: state.sort === 'lo' ? 'price.asc' : state.sort === 'hi' ? 'price.desc' : 'created_at.desc',
-      limit: '15', offset: String(state.page * 15),
-    });
-    const query = state.query.replace(/[,%.*()]/g, ' ').trim();
-    if (query) params.set('or', '(item_name.ilike.*' + query + '*,seller_name.ilike.*' + query + '*)');
-    if (state.currency) params.set('currency', 'eq.' + state.currency);
-    const response = await fetch(project + '/rest/v1/market_listings?' + params, {
-      headers: { apikey:key }, cache:'no-store',
-    });
-    if (!response.ok) throw Error('Supabase HTTP ' + response.status);
-    const data = await response.json();
-    if (!Array.isArray(data)) throw Error('Phản hồi Chợ không hợp lệ');
-    return data;
+  async function api(path, options) {
+    const response = await fetch('/api/market/' + path, { cache: 'no-store', ...options });
+    const result = await response.json();
+    if (!response.ok) throw Object.assign(new Error(result.error || 'Không kết nối được Chợ.'), { status: response.status });
+    return result;
   }
 
-  function renderNotice(root, text) {
-    const node = root.querySelector('#mktStatus');
-    if (node) node.textContent = text;
+  function button(label, action) {
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = 'btn sm';
+    node.textContent = label;
+    node.onclick = action;
+    return node;
   }
 
-  async function refresh() {
-    const body = m('#mBody');
-    if (!body?.querySelector('#localMarket')) return;
-    if (state.tab !== 'buy') return;
-    renderNotice(body, 'Đang tải hàng hóa…');
+  function row(name, detail) {
+    const node = document.createElement('div');
+    node.className = 'nmrow';
+    const title = document.createElement('span');
+    title.textContent = name;
+    if (detail) {
+      const label = document.createElement('small');
+      label.className = 'dim';
+      label.textContent = detail;
+      title.append(document.createElement('br'), label);
+    }
+    node.append(title);
+    return node;
+  }
+
+  function status(root, message) {
+    root.querySelector('#mktStatus').textContent = message;
+  }
+
+  async function transact(root, key, command) {
+    if (submitting) return;
+    submitting = true;
+    let pending;
     try {
-      const listings = await readListings();
-      const list = body.querySelector('#mktListings');
-      if (!list) return;
-      list.replaceChildren();
-      for (const item of listings) {
-        const row = document.createElement('div'); row.className = 'nmrow';
-        const details = document.createElement('span');
-        const title = document.createElement('b'); title.textContent = item.item_name;
-        const seller = document.createElement('small'); seller.className = 'dim';
-        seller.textContent = 'Người bán: ' + item.seller_name;
-        details.append(title, document.createElement('br'), seller);
-        const price = document.createElement('span'); price.className='cp';
-        price.textContent=displayMoney(item.price,item.currency);
-        row.append(details,price); list.appendChild(row);
+      pending = sessionStorage.getItem(key);
+      if (command && pending) throw new Error('Hãy gửi lại yêu cầu trước khi bắt đầu giao dịch khác.');
+      if (!pending && command) {
+        pending = JSON.stringify({ ...command, requestId: crypto.randomUUID() });
+        sessionStorage.setItem(key, pending);
       }
-      renderNotice(body, listings.length ? listings.length + ' món trên trang ' + (state.page+1)
-        : 'Chợ chưa có hàng ở bộ lọc này.');
-      const previous=body.querySelector('#mktPrev'); if(previous)previous.disabled=state.page===0;
-      const next=body.querySelector('#mktNext'); if(next)next.disabled=listings.length<15;
+      if (!pending) return;
+      status(root, 'Đang xử lý giao dịch…');
+      await api('transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pending });
+      sessionStorage.removeItem(key);
+      const current = m('#localMarket');
+      if (current) void refresh(current, 'Giao dịch đã hoàn tất.');
     } catch (error) {
-      renderNotice(body, 'Không tải được danh sách Chợ: ' + (error.message||error));
+      // A lost response can follow a successful commit. Preserve the exact
+      // request until a definitive result can be obtained from the server.
+      if (error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 429) {
+        sessionStorage.removeItem(key);
+      }
+      const current = m('#localMarket');
+      if (current) void refresh(current, error.message);
+    } finally {
+      submitting = false;
+    }
+  }
+
+  async function refresh(root, message) {
+    const version = ++revision;
+    status(root, 'Đang tải Chợ…');
+    const panel = root.querySelector('#mktListings');
+    const controls = root.querySelector('#mktPending');
+    const params = new URLSearchParams({ q: state.query, currency: state.currency, sort: state.sort, page: String(state.page) });
+    try {
+      const [mine, catalog] = await Promise.all([api('mine'), state.tab === 'buy' ? api('listings?' + params) : null]);
+      if (version !== revision || m('#localMarket') !== root) return;
+      const key = 'vltk-market-request:' + mine.accountId;
+      const pending = sessionStorage.getItem(key);
+      const addAction = (node, label, command) => {
+        const action = button(label, () => void transact(root, key, { ...command, accountId: mine.accountId }));
+        action.disabled = !!pending;
+        node.append(action);
+      };
+      controls.replaceChildren();
+      if (pending) controls.append(button('Gửi lại yêu cầu', () => void transact(root, key)));
+      root.querySelector('#mktWallet').textContent = 'Ví Chợ: ' + money(mine.wallet.gold, 'gold') + ' · ' + money(mine.wallet.knb, 'knb');
+      panel.replaceChildren();
+      if (catalog) {
+        for (const listing of catalog.listings) {
+          const node = row(listing.item_name, 'Người bán: ' + listing.seller_name);
+          const price = document.createElement('span');
+          price.className = 'cp';
+          price.textContent = money(listing.price, listing.currency);
+          node.append(price);
+          if (!listing.own) addAction(node, 'Mua', { action: 'buy', target: listing.id });
+          panel.append(node);
+        }
+        root.querySelector('#mktPrev').disabled = state.page === 0;
+        root.querySelector('#mktNext').disabled = !catalog.hasMore;
+      } else if (state.tab === 'sell') {
+        for (const item of mine.items) {
+          const node = row(item.name);
+          const price = document.createElement('input');
+          price.type = 'number';
+          price.min = '1';
+          price.step = '1';
+          price.placeholder = 'Giá bán';
+          price.setAttribute('aria-label', 'Giá bán ' + item.name);
+          const unit = document.createElement('select');
+          unit.setAttribute('aria-label', 'Đơn vị tiền');
+          unit.append(new Option('Lượng', 'gold'), new Option('KNB', 'knb'));
+          const sell = button('Bày bán', () => {
+            if (!Number.isSafeInteger(price.valueAsNumber) || price.valueAsNumber <= 0) {
+              status(root, 'Nhập giá bán là số nguyên dương.');
+              return;
+            }
+            void transact(root, key, {
+              action: 'sell', target: item.id, price: price.valueAsNumber, currency: unit.value, accountId: mine.accountId,
+            });
+          });
+          sell.disabled = !!pending;
+          node.append(price, unit, sell);
+          panel.append(node);
+        }
+      } else {
+        for (const order of mine.orders) {
+          const label = order.status === 'active' ? 'Đang bày bán' : order.status === 'cancelled' ? 'Đã hủy'
+            : order.received ? 'Đã nhận' : order.own ? 'Chờ nhận tiền' : 'Chờ nhận vật phẩm';
+          const node = row(order.item_name, label + ' · ' + money(order.price, order.currency));
+          if (order.status === 'active') addAction(node, 'Hủy', { action: 'cancel', target: order.id });
+          if (order.status === 'sold' && !order.received) addAction(node, 'Nhận', { action: 'receive', target: order.id });
+          panel.append(node);
+        }
+      }
+      status(root, message || (pending ? 'Đang chờ kết quả của yêu cầu trước.' : panel.childElementCount ? '' :
+        state.tab === 'buy' ? 'Chợ chưa có hàng ở bộ lọc này.' : state.tab === 'sell' ? 'Kho Chợ chưa có vật phẩm.' : 'Chưa có giao dịch.'));
+    } catch (error) {
+      if (version === revision && m('#localMarket') === root) status(root, error.message);
     }
   }
 
   function open(tab = 'buy') {
-    state.tab = ['buy','sell','mine'].includes(tab) ? tab : 'buy';
-    const tabs = [['buy','Mua'],['sell','Bày bán'],['mine','Hàng của tôi']];
+    state.tab = ['buy', 'sell', 'mine'].includes(tab) ? tab : 'buy';
+    const tabs = [['buy', 'Mua'], ['sell', 'Bày bán'], ['mine', 'Hàng của tôi']];
     J(`<section id="localMarket">
       <h3>🌐 Chợ Giang Hồ</h3>
-      <div class="seg" id="mktTabs">${tabs.map(([value,label]) => `<button class="btn sm${state.tab===value?' on':''}" data-tab="${value}">${label}</button>`).join('')}</div>
+      <div class="seg" id="mktTabs">${tabs.map(([value, label]) => `<button class="btn sm${state.tab === value ? ' on' : ''}" data-tab="${value}">${label}</button>`).join('')}</div>
+      <p id="mktWallet" class="dim small"></p>
       ${state.tab === 'buy' ? `<div class="row">
-        <input id="mktSearch" placeholder="Tìm tên vật phẩm / người bán" maxlength="60" value="${escapeHtml(state.query)}">
+        <input id="mktSearch" placeholder="Tìm tên vật phẩm / người bán" maxlength="60">
         <button type="button" class="btn sm" id="mktFind">Tìm</button>
       </div><div class="row">
-        <select id="mktCurrency"><option value="">Mọi tiền tệ</option>
-          <option value="gold"${state.currency==='gold'?' selected':''}>Lượng</option>
-          <option value="knb"${state.currency==='knb'?' selected':''}>KNB</option></select>
-        <select id="mktSort"><option value="new">Mới nhất</option>
-          <option value="lo"${state.sort==='lo'?' selected':''}>Giá thấp đến cao</option>
-          <option value="hi"${state.sort==='hi'?' selected':''}>Giá cao đến thấp</option></select>
-      </div><div id="mktListings" class="shoplist"></div>
-      <div class="btnrow"><button class="btn sm" id="mktPrev">◀</button>
-        <span>Trang ${state.page + 1}</span><button class="btn sm" id="mktNext">▶</button>
-        <button class="btn sm" id="mktReload">Tải lại</button></div>`
-      : '<p class="desc">Tính năng này đang được kết nối với tài khoản và hành trang trên máy chủ. Chưa cho phép chuyển tiền hoặc vật phẩm để tránh mất đồ hay nhân đôi đồ.</p>'}
+        <select id="mktCurrency"><option value="">Mọi tiền tệ</option><option value="gold">Lượng</option><option value="knb">KNB</option></select>
+        <select id="mktSort"><option value="new">Mới nhất</option><option value="lo">Giá thấp đến cao</option><option value="hi">Giá cao đến thấp</option></select>
+      </div>` : '<p class="desc">Tài sản Chợ nằm trong kho và ví Chợ của tài khoản.</p>'}
+      <div id="mktListings" class="shoplist"></div>
+      <div class="btnrow">${state.tab === 'buy' ? `<button class="btn sm" id="mktPrev" disabled>◀</button>
+        <span>Trang ${state.page + 1}</span><button class="btn sm" id="mktNext" disabled>▶</button>` : ''}
+        <button class="btn sm" id="mktReload">Tải lại</button><span id="mktPending"></span></div>
       <p id="mktStatus" class="dim small" role="status"></p>
     </section>`, () => {
-      const root=m('#localMarket');
-      root?.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => open(button.dataset.tab));
-      const search=root?.querySelector('#mktSearch');
-      const execute=()=>{state.query=search?.value.trim()||'';state.page=0;void refresh();};
-      if(search)search.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();execute();}};
-      const find=root?.querySelector('#mktFind');if(find)find.onclick=execute;
-      const currency=root?.querySelector('#mktCurrency');if(currency)currency.onchange=()=>{state.currency=currency.value;state.page=0;void refresh();};
-      const sort=root?.querySelector('#mktSort');if(sort)sort.onchange=()=>{state.sort=sort.value;state.page=0;void refresh();};
-      const prev=root?.querySelector('#mktPrev');if(prev)prev.onclick=()=>{state.page=Math.max(0,state.page-1);open();};
-      const next=root?.querySelector('#mktNext');if(next)next.onclick=()=>{state.page++;open();};
-      const reload=root?.querySelector('#mktReload');if(reload)reload.onclick=()=>void refresh();
-      void refresh();
+      const root = m('#localMarket');
+      if (!root) return;
+      const get = selector => root.querySelector(selector);
+      root.querySelectorAll('[data-tab]').forEach(node => node.onclick = () => open(node.dataset.tab));
+      const search = get('#mktSearch');
+      if (search) {
+        const unit = get('#mktCurrency');
+        const sort = get('#mktSort');
+        search.value = state.query;
+        unit.value = state.currency;
+        sort.value = state.sort;
+        const filter = () => { state.page = 0; open(); };
+        const searchNow = () => { state.query = search.value.trim(); filter(); };
+        search.onkeydown = event => { if (event.key === 'Enter') searchNow(); };
+        get('#mktFind').onclick = searchNow;
+        unit.onchange = () => { state.currency = unit.value; filter(); };
+        sort.onchange = () => { state.sort = sort.value; filter(); };
+        get('#mktPrev').onclick = () => { state.page--; open(); };
+        get('#mktNext').onclick = () => { state.page++; open(); };
+      }
+      get('#mktReload').onclick = () => void refresh(root);
+      void refresh(root);
     });
   }
-  return { open, refresh };
+  return { open };
 })();
 
-// Route the original online market tab to the game-local Market adapter,
-// leaving the other network tabs and original modal framework unchanged.
 if (typeof Y0 === 'function') {
   const upstreamMarketPanel = Y0;
   Y0 = function (tab, ...args) {

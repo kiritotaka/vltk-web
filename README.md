@@ -560,8 +560,32 @@ kể từ lúc server khởi động: `GET /api/assets` (gồm repaired/download
 Asset sinh đường dẫn động, như sprite nhân vật JXLOOK, vẫn được tải theo nhu cầu
 và kiểm tra byte trước khi trả về. Server phục vụ cả thư mục music/.
 
-Nút Chợ hiện trong bản local; bấm nút sẽ giải thích backend giao dịch online
-chưa được triển khai. Không kết nối tới Supabase production để mở Chợ.
+## Chợ Giang Hồ
+
+Modal Chợ giữ ba tab **Mua**, **Bày bán** và **Hàng của tôi**. Fastify dùng
+cùng phiên đăng nhập với game. SQLite lưu kho, ví, tin Chợ và kết quả từng
+yêu cầu. Tin bày bán trong bản local được đọc từ SQLite, nơi tài sản được
+ký gửi và thanh toán trong cùng transaction.
+
+Kho và ví Chợ thuộc tài khoản. Tiến trình game, hành trang và tiền trong save
+nhân vật tiếp tục dùng luồng lưu hiện tại. Vật phẩm và số dư dùng được ở Chợ
+được cấp từ máy chủ, qua lệnh cục bộ cho tài khoản đã tồn tại:
+
+```powershell
+node tools/issue-market-assets.js grant-item-001 ten_tai_khoan item "Thanh kiếm"
+node tools/issue-market-assets.js grant-gold-001 ten_tai_khoan gold 50000
+node tools/issue-market-assets.js grant-knb-001 ten_tai_khoan knb 100
+```
+
+Mỗi lần cấp dùng một mã riêng. Chạy lại cùng lệnh với cùng mã giữ nguyên
+kết quả. Sau khi mua, người mua nhận vật phẩm vào kho Chợ và người bán nhận
+tiền vào ví Chợ qua tab **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng
+**Gửi lại yêu cầu** trong cùng tab trình duyệt để lấy kết quả hoặc tiếp tục
+yêu cầu đã lưu. Test chạy với SQLite tạm:
+
+```powershell
+node --test --test-concurrency=1 test/market-native-ui.test.js test/market-transactions.test.js
+```
 
 ## GameMaster (GM)
 
