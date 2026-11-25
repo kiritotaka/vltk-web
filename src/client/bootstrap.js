@@ -177,12 +177,6 @@
     }
     if (loading && window.localGameAssets) await loading.preload(window.localGameAssets);
     loading?.finish();
-    // SQLite-authenticated chat uses the existing game session and does not
-    // depend on legacy Supabase Auth or the upstream author's chat schema.
-    const localChatScript = document.createElement('script');
-    localChatScript.src = '/client/local-chat.js';
-    localChatScript.onerror = () => console.warn('Local world chat failed to load');
-    document.body.appendChild(localChatScript);
     status.hidden = queue.length === 0;
   } catch (error) {
     status.hidden = false; status.textContent = `Không thể mở game: ${error.message} — tải lại trang để thử lại.`;
