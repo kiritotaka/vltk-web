@@ -674,4 +674,10 @@ typeof ef == "function" && ef();
 
 var d5 = 622;
 
+// Called by bootstrap before replacing a live game with a newly deployed
+// server version. This keeps character state and SQLite outbox in sync.
+window.addEventListener('volam:save-before-reload', () => {
+  if (typeof o !== 'undefined' && o && o.fac && typeof $ === 'function') $();
+});
+
 setInterval(k_, 300 * 1e3);
