@@ -98,9 +98,12 @@ export function mountStatusInspector() {
   }
   function refresh(force = false) {
     const playing = typeof o !== 'undefined' && !!o?.fac;
-    // This is a developer-only status inspector, not a combat FX toggle.
-    // Keep its launcher hidden in normal gameplay without changing combat effects.
-    toggle.hidden = true;
+    // Developer-only diagnostics: the login role, not development mode,
+    // decides whether the launcher may appear. Gameplay effects are unchanged.
+    const role = (window as Window & { localGameAuth?: { user?: { role?: string } } }).localGameAuth?.user?.role;
+    const canInspect = role === 'gm' || role === 'admin';
+    toggle.hidden = !playing || !canInspect;
+    if (!canInspect && !panel.hidden) setOpen(false);
     if (!playing) { setOpen(false);previous = null;signature = '';owner = '';return; }
     if (panel.hidden) return;
     try {
