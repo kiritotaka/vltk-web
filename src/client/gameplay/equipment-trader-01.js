@@ -329,7 +329,7 @@ var equipmentTrader = (function () {
   // Capture only NPC taps so movement, loot and combat targeting stay unchanged.
   const canvas = m("#arena");
   if (canvas) canvas.addEventListener("pointerdown", event => {
-    const rect = canvas.getBoundingClientRect(), scale = $8();
+    const rect = canvas.getBoundingClientRect(), scale = $8() * gameWorldZoom;
     const x = (event.clientX - rect.left) / scale + B0.x, y = (event.clientY - rect.top) / scale + B0.y;
     const npc = entities().find(npc => npc.mapNpc
       ? MapsEngine.hitNpc([npc.mapNpc], { x, y }, 6)
