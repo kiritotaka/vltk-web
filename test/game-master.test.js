@@ -231,7 +231,7 @@ test("Can Khon ring grant moved out of GM into the equipment NPC", () => {
   assert.throws(() => s.gameMaster.grant("rings"), /không hợp lệ/);
   assert.equal(s.o.inv.length, 0);
 });
-test("production exposes GM controls but hides and rejects potential and chest grants", () => {
+test("admin sees all GM controls in production; normal users are denied", () => {
   const s = game(false);
   const panel = s.nodes.find(node => node.id === "gm-panel");
   assert.ok(s.nodes.some(node => node.id === "gm-toggle"));
@@ -239,8 +239,7 @@ test("production exposes GM controls but hides and rejects potential and chest g
   for (const action of ["level150", "learn90", "max90", "gold", "knb", "xp"])
     assert.ok(panel.innerHTML.includes(`data-gm="${action}"`), action);
   for (const action of ["potential", "chest"]) {
-    assert.ok(!panel.innerHTML.includes(`data-gm="${action}"`), action);
-    assert.throws(() => s.gameMaster.grant(action), /chỉ dùng.*development/);
+    assert.ok(panel.innerHTML.includes(`data-gm="${action}"`), action);
   }
   assert.equal(s.o.attrPts, 0);
   assert.equal(s.o.inv.length, 0);
