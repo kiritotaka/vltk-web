@@ -24,7 +24,7 @@ export function registerAccounts(app: FastifyInstance, db: DatabaseSync) {
   CREATE TABLE IF NOT EXISTS account_batches (account_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(account_id,id));`);
   const attempts = new Map<string, { count: number; until: number }>();
   const getUser = (request: FastifyRequest) => db.prepare(`SELECT a.id,a.username FROM accounts a
-    JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires>?`).get(hashToken(tokenFrom(request)), Date.now());
+    JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires>?`).get(hashToken(tokenFrom(request)), Date.now()) as { id: string; username: string } | undefined;
   const requireUser = (request: FastifyRequest) => getUser(request) || fail(401, 'Vui lòng đăng nhập.');
   const setSession = (request: FastifyRequest, reply: FastifyReply, id: string) => {
     const token = randomBytes(32).toString('hex');
