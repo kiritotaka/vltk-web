@@ -548,7 +548,9 @@ var ED = {
   both: [0, 80, 150, 750, 1500, 4500],
 };
 
-var Ot = (s) => (ED[s.kind] || [])[s.tier] || s.price;
+// Central price for all pharmacy consumables (including auto-buy and both-stat potions).
+// The original table is retained for balance/reference; shop and purchase use this value.
+var Ot = (s) => Math.max(1, Math.floor((((ED[s.kind] || [])[s.tier] || s.price) || 0) / 10));
 
 var _1 = () => l.enemies.filter((s) => s.hp > 0 && !s.dead &&
   !(typeof arenaSimulator !== "undefined" && arenaSimulator && arenaSimulator.battlefield.active && !arenaSimulator.battlefield.canHit(v, s)));
