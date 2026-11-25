@@ -131,7 +131,7 @@ test('Bày bán lists the selected character inventory and submits its server it
     async fetch(url, options) {
       requests.push([url, options.body]);
       const data = url.endsWith('/mine') ? { accountId: 'account', wallet: { gold: 0, knb: 0 }, items: [] }
-        : url.endsWith('/inventory/jxidle_2') ? { items: [{ id: 'server-item', name: 'Nhẫn', item: { lvl: 10 } }] }
+        : url.endsWith('/inventory/jxidle_2') ? { items: [{ id: 'server-item', name: 'Nhẫn', item: { lvl: 10, ic: 'img/i/g44.png' } }] }
           : { listingId: 'list-id' };
       return { ok: true, json: async () => data };
     },
@@ -140,10 +140,13 @@ test('Bày bán lists the selected character inventory and submits its server it
   browser.localMarket.open('sell');
   await new Promise(resolve => setImmediate(resolve));
   const [row] = root.querySelector('#mktListings').children;
-  assert.equal(row.children[0].textContent, 'Nhẫn');
-  row.children[1].valueAsNumber = 25;
-  row.children[2].value = 'gold';
-  row.children[3].onclick();
+  const [item, actions] = row.children;
+  assert.equal(item.children[0].src, '/img/i/g44.png');
+  assert.equal(item.children[1].children[0].textContent, 'Nhẫn');
+  const [price, currency, sellButton] = actions.children;
+  price.valueAsNumber = 25;
+  currency.value = 'gold';
+  sellButton.onclick();
   await new Promise(resolve => setImmediate(resolve));
   const post = requests.find(([url]) => url.endsWith('/transactions'));
   assert.deepEqual(JSON.parse(post[1]), {

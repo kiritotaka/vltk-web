@@ -23,18 +23,32 @@ var localMarket = (() => {
     return node;
   }
 
-  function row(name, detail) {
+  function row(name, detail, icon) {
     const node = document.createElement('div');
-    node.className = 'nmrow';
-    const title = document.createElement('span');
+    node.className = 'mkt-row';
+    const item = document.createElement('div');
+    item.className = 'mkt-item';
+    if (typeof icon === 'string' && /^\/?img\/[a-z0-9_/-]+\.(png|webp|jpg)$/i.test(icon)) {
+      const image = document.createElement('img');
+      image.src = '/' + icon.replace(/^\//, '');
+      image.alt = '';
+      image.loading = 'lazy';
+      image.className = 'mkt-icon';
+      item.append(image);
+    }
+    const text = document.createElement('div');
+    text.className = 'mkt-item-text';
+    const title = document.createElement('b');
     title.textContent = name;
+    text.append(title);
     if (detail) {
       const label = document.createElement('small');
       label.className = 'dim';
       label.textContent = detail;
-      title.append(document.createElement('br'), label);
+      text.append(label);
     }
-    node.append(title);
+    item.append(text);
+    node.append(item);
     return node;
   }
 
@@ -50,7 +64,7 @@ var localMarket = (() => {
       pending = sessionStorage.getItem(key);
       if (command && pending) throw new Error('Hãy gửi lại yêu cầu trước khi bắt đầu giao dịch khác.');
       if (!pending && command) {
-        if (command.action === 'sell' && currentSlot() && typeof window !== 'undefined' && window.localGameStorage) {
+        if (['sell', 'buy'].includes(command.action) && currentSlot() && typeof window !== 'undefined' && window.localGameStorage) {
           if (typeof $ === 'function') $();
           await window.localGameStorage.flush();
           if (window.localGameStorage.pending) throw new Error('Hãy đợi Hành trang đồng bộ rồi thử lại.');
@@ -108,23 +122,39 @@ var localMarket = (() => {
       };
       controls.replaceChildren();
       if (pending) controls.append(button('Gửi lại yêu cầu', () => void transact(root, key)));
-      root.querySelector('#mktWallet').textContent = 'Ví Chợ: ' + money(mine.wallet.gold, 'gold') + ' · ' + money(mine.wallet.knb, 'knb');
+      const balances = [];
+      if (character && typeof o !== 'undefined' && o) {
+        balances.push('Hành trang: ' + money(o.gold || 0, 'gold') + ' · ' + money(o.knb || 0, 'knb'));
+      }
+      if (!balances.length || mine.wallet.gold || mine.wallet.knb || catalog?.listings.some(listing => !listing.inventory_trade)) {
+        balances.push('Ví Chợ: ' + money(mine.wallet.gold, 'gold') + ' · ' + money(mine.wallet.knb, 'knb'));
+      }
+      root.querySelector('#mktWallet').textContent = balances.join(' | ');
       panel.replaceChildren();
       if (catalog) {
         for (const listing of catalog.listings) {
-          const node = row(listing.item_name, 'Người bán: ' + listing.seller_name);
+          const node = row(listing.item_name, 'Người bán: ' + listing.seller_name, listing.item_icon);
           const price = document.createElement('span');
           price.className = 'cp';
           price.textContent = money(listing.price, listing.currency);
           node.append(price);
-          if (!listing.own) addAction(node, 'Mua', { action: 'buy', target: listing.id });
+          if (!listing.own) {
+            if (listing.inventory_trade && !character) {
+              const buy = button('Mua');
+              buy.disabled = true;
+              buy.title = 'Vào game với nhân vật để mua.';
+              node.append(buy);
+            } else {
+              addAction(node, 'Mua', { action: 'buy', target: listing.id, ...(listing.inventory_trade ? { character } : {}) });
+            }
+          }
           panel.append(node);
         }
         root.querySelector('#mktPrev').disabled = state.page === 0;
         root.querySelector('#mktNext').disabled = !catalog.hasMore;
       } else if (state.tab === 'sell') {
         for (const item of [...inventory.items, ...mine.items]) {
-          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + (item.item.lvl || '—') : 'Kho Chợ');
+          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + (item.item.lvl || '—') : 'Kho Chợ', item.item?.ic);
           const price = document.createElement('input');
           price.type = 'number';
           price.min = '1';
@@ -145,14 +175,17 @@ var localMarket = (() => {
             });
           });
           sell.disabled = !!pending;
-          node.append(price, unit, sell);
+          const actions = document.createElement('div');
+          actions.className = 'mkt-actions';
+          actions.append(price, unit, sell);
+          node.append(actions);
           panel.append(node);
         }
       } else {
         for (const order of mine.orders) {
           const label = order.status === 'active' ? 'Đang bày bán' : order.status === 'cancelled' ? 'Đã hủy'
             : order.received ? 'Đã nhận' : order.own ? 'Chờ nhận tiền' : 'Chờ nhận vật phẩm';
-          const node = row(order.item_name, label + ' · ' + money(order.price, order.currency));
+          const node = row(order.item_name, label + ' · ' + money(order.price, order.currency), order.item_icon);
           if (order.status === 'active') addAction(node, 'Hủy', { action: 'cancel', target: order.id });
           if (order.status === 'sold' && !order.received) addAction(node, 'Nhận', { action: 'receive', target: order.id, ...(character ? { character } : {}) });
           panel.append(node);
@@ -176,7 +209,7 @@ var localMarket = (() => {
       if (!panel.isConnected || currentSlot() !== slot) return;
       panel.replaceChildren();
       if (!items.length) { panel.textContent = 'Chưa có vật phẩm do máy chủ quản lý.'; return; }
-      for (const item of items) if (!item.legacy) panel.append(row(item.name, 'Cấp ' + item.item.lvl));
+      for (const item of items) if (!item.legacy) panel.append(row(item.name, 'Cấp ' + item.item.lvl, item.item.ic));
       panel.append(button('Bày bán', () => open('sell')));
     }).catch(error => { if (panel.isConnected) panel.textContent = error.message; });
   }
@@ -196,7 +229,7 @@ var localMarket = (() => {
         <select id="mktCurrency"><option value="">Mọi tiền tệ</option><option value="gold">Lượng</option><option value="knb">KNB</option></select>
         <select id="mktSort"><option value="new">Mới nhất</option><option value="lo">Giá thấp đến cao</option><option value="hi">Giá cao đến thấp</option></select>
       </div>` : '<p class="desc">Chọn vật phẩm trong Hành trang do máy chủ quản lý hoặc Kho Chợ.</p>'}
-      <div id="mktListings" class="shoplist"></div>
+      <div id="mktListings" class="shoplist mkt-list"></div>
       <div class="btnrow">${state.tab === 'buy' ? `<button class="btn sm" id="mktPrev" disabled>◀</button>
         <span>Trang ${state.page + 1}</span><button class="btn sm" id="mktNext" disabled>▶</button>` : ''}
         <button class="btn sm" id="mktReload">Tải lại</button><span id="mktPending"></span></div>

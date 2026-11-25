@@ -142,6 +142,18 @@ export function legacyMarketInventory(db: DatabaseSync) {
     return id;
   }
 
+  function changeBalance(owner: string, slot: CharacterSlot, unit: 'gold' | 'knb', delta: number) {
+    const save = load(owner, slot);
+    const amount = Number(save.state[unit] ?? 0);
+    const next = amount + delta;
+    if (!Number.isSafeInteger(amount) || amount < 0 || !Number.isSafeInteger(next))
+      error('Số dư nhân vật không hợp lệ.');
+    if (next < 0) error(unit === 'knb' ? 'Hành trang không đủ KNB.' : 'Hành trang không đủ lượng.');
+    save.state[unit] = next;
+    db.prepare('UPDATE account_storage SET value=? WHERE account_id=? AND key=?').run(save.encode(), owner, slot);
+    db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(randomUUID(), owner);
+  }
+
   function receiveTrustedEquipment(owner: string, slot: CharacterSlot, equipment: Omit<Item, 'uid'>[]) {
     const save = load(owner, slot);
     const inventory = save.state.inv as Item[];
@@ -263,5 +275,5 @@ export function legacyMarketInventory(db: DatabaseSync) {
     });
   }
 
-  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment };
+  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment, changeBalance };
 }

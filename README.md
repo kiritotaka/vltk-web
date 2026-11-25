@@ -622,8 +622,9 @@ Mỗi nhân vật có tối đa 5 tin đang bày bán. Hủy hoặc bán xong s�
 phóng một chỗ.
 
 Mỗi lần cấp dùng một mã riêng. Chạy lại cùng lệnh với cùng mã giữ nguyên
-kết quả. Sau khi mua, người mua nhận vật phẩm về Hành trang hoặc Kho Chợ theo
-nguồn của món, còn người bán nhận tiền vào ví Chợ qua tab **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng
+kết quả. Tin bán từ Hành trang dùng Lượng hoặc KNB đã đồng bộ của nhân vật mua.
+Giao dịch đưa món vào Hành trang người mua và chuyển tiền vào Hành trang
+nhân vật bán. Tin cũ chỉ có tên vật phẩm vẫn dùng Ví Chợ và **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng
 **Gửi lại yêu cầu** trong cùng tab trình duyệt để lấy kết quả hoặc tiếp tục
 yêu cầu đã lưu. Test chạy với SQLite tạm:
 

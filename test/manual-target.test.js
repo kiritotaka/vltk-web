@@ -219,3 +219,33 @@ test('80 percent zoom maps pointer coordinates back to the same skill reach',()=
   }
   assert.equal(standard.casts,zoomed.casts);
 });
+
+test('auto replaces a monster after repeated casts fail to make progress',()=>{
+  const s=game(), primary=enemy(s,150), backup=enemy(s,175);
+  s.o.ctrl='auto';
+  s.jd=()=> 'near';
+  s.c8=targets=>targets[0] || null;
+  declaration(s,'src/client/core/state-and-save-01.js','iD');
+  for(let second=0;second<=6;second++) {
+    s.l.clock=second;
+    s.oD();
+  }
+  assert.ok(s.casts>=2);
+  assert.equal(s.l.tgt,backup);
+  assert.ok(s.l.tgtBan.get(primary)>s.l.clock);
+});
+
+test('auto keeps its target while its HP continues to reach new lows',()=>{
+  const s=game(), primary=enemy(s,150);
+  enemy(s,175);
+  s.o.ctrl='auto';
+  s.jd=()=> 'near';
+  s.c8=targets=>targets[0] || null;
+  declaration(s,'src/client/core/state-and-save-01.js','iD');
+  for(let second=0;second<12;second++) {
+    s.l.clock=second;
+    primary.hp-=1;
+    s.oD();
+    assert.equal(s.l.tgt,primary);
+  }
+});

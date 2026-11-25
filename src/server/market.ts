@@ -182,11 +182,27 @@ export function createMarket(db: DatabaseSync) {
         if (!listing) fail(404, 'Không tìm thấy tin Chợ.');
         if (data.action === 'buy') {
           if (listing.status !== 'active' || listing.seller_id === owner) fail(409, 'Tin Chợ không thể mua.');
-          const { changes } = db.prepare('UPDATE market_wallet SET balance=balance-? WHERE owner_id=? AND currency=? AND balance>=?')
-            .run(listing.price, owner, listing.currency, listing.price);
-          if (changes !== 1) fail(409, 'Ví Chợ không đủ tiền.');
-          moveItem(listing.item_id, listing.seller_id, 'escrow', owner, 'pending');
-          db.prepare("UPDATE market_orders SET status='sold',buyer_id=? WHERE id=?").run(owner, listingId);
+          const source = db.prepare(`
+            SELECT t.slot,c.payload
+            FROM market_inventory_transfers t JOIN market_character_items c ON c.item_id=t.id
+            WHERE t.id=? AND t.owner_id=? AND t.consumed=1
+          `).get(listing.item_id, listing.seller_id);
+          if (data.character && source) {
+            const item = JSON.parse(source.payload as string);
+            legacy.changeBalance(owner, data.character, listing.currency, -listing.price);
+            legacy.receiveTrustedEquipment(owner, data.character, [item]);
+            legacy.changeBalance(listing.seller_id, marketCharacterSlot(source.slot), listing.currency, listing.price);
+            moveItem(listing.item_id, listing.seller_id, 'escrow', owner, 'pending');
+            db.prepare("UPDATE market_orders SET status='sold',buyer_id=?,buyer_received=1,seller_received=1 WHERE id=?")
+              .run(owner, listingId);
+            reloadCharacter = true;
+          } else {
+            const { changes } = db.prepare('UPDATE market_wallet SET balance=balance-? WHERE owner_id=? AND currency=? AND balance>=?')
+              .run(listing.price, owner, listing.currency, listing.price);
+            if (changes !== 1) fail(409, 'Ví Chợ không đủ tiền.');
+            moveItem(listing.item_id, listing.seller_id, 'escrow', owner, 'pending');
+            db.prepare("UPDATE market_orders SET status='sold',buyer_id=? WHERE id=?").run(owner, listingId);
+          }
         } else if (data.action === 'cancel') {
           if (listing.seller_id !== owner) fail(404, 'Không tìm thấy tin Chợ.');
           if (listing.status !== 'active') fail(409, 'Tin Chợ đã đóng.');
@@ -244,8 +260,11 @@ export function createMarket(db: DatabaseSync) {
     const page = typeof query.page === 'string' && /^\d{1,5}$/.test(query.page) ? Number(query.page) : 0;
     const sort = query.sort === 'lo' ? 'o.price ASC,' : query.sort === 'hi' ? 'o.price DESC,' : '';
     const rows = db.prepare(`
-      SELECT o.id,o.price,o.currency,i.name AS item_name,a.username AS seller_name,o.seller_id=? AS own
+      SELECT o.id,o.price,o.currency,i.name AS item_name,a.username AS seller_name,o.seller_id=? AS own,
+        json_extract(c.payload,'$.ic') AS item_icon,
+        EXISTS(SELECT 1 FROM market_inventory_transfers t WHERE t.id=i.id AND t.owner_id=o.seller_id AND t.consumed=1) AS inventory_trade
       FROM market_orders o JOIN market_items i ON i.id=o.item_id JOIN accounts a ON a.id=o.seller_id
+      LEFT JOIN market_character_items c ON c.item_id=i.id
       WHERE o.status='active' AND (?='' OR o.currency=?)
         AND (?='' OR instr(i.search_name,?)>0 OR instr(a.username,?)>0)
       ORDER BY ${sort} o.created_at DESC,o.id DESC LIMIT 16 OFFSET ?
@@ -261,8 +280,10 @@ export function createMarket(db: DatabaseSync) {
         (SELECT 1 FROM market_character_items c WHERE c.item_id=i.id) ORDER BY i.name,i.id`).all(owner);
     const orders = db.prepare(`
       SELECT o.id,o.status,o.price,o.currency,i.name AS item_name,o.seller_id=? AS own,
+        json_extract(c.payload,'$.ic') AS item_icon,
         CASE WHEN o.seller_id=? THEN o.seller_received ELSE o.buyer_received END AS received
       FROM market_orders o JOIN market_items i ON i.id=o.item_id
+      LEFT JOIN market_character_items c ON c.item_id=i.id
       WHERE o.seller_id=? OR o.buyer_id=? ORDER BY o.created_at DESC,o.id DESC
     `).all(owner, owner, owner, owner);
     return { accountId: owner, wallet, items, orders };

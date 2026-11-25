@@ -750,13 +750,12 @@ var iD = function (A) {
   const n = !$1(),
     t = l.clock || 0,
     e = l.tgtBan || (l.tgtBan = new Map());
-  let a = A,
-    i = !1;
+  let a = A;
   if (n && o.mode === "quest" && typeof Qs == "function") {
     const u = A.filter((w) => Qs(w) && !(e.get(w) > t));
     if (u.length) {
       const w = A.filter((x) => !u.includes(x) && q0(v, x) < 140);
-      ((a = w.length ? u.concat(w) : u), (i = !0));
+      a = w.length ? u.concat(w) : u;
     }
   }
   if (l.battlefield && o.preferPKSim) {
@@ -780,18 +779,36 @@ var iD = function (A) {
     d = c.length ? c : a,
     f = l.tgt,
     h = c8(d);
+  let replacement = null;
   if (f && !f.dead && f.hp > 0 && d.includes(f)) {
-    const u = q0(v, f);
-    if (
-      (u < (l.tgtD ?? 1e9) - 25 && ((l.tgtD = u), (l.tgtHitT = t)),
-      t - (l.tgtHitT ?? t) > 5 && (d.length > 1 || i))
-    )
-      e.set(f, t + 8);
-    else if (!h || h === f || q0(v, h) > q0(v, f) * 0.5 - 40) return f;
+    const distance = q0(v, f);
+    if (distance < (l.tgtD ?? Infinity) - 25) {
+      l.tgtD = distance;
+      l.tgtHitT = t;
+    }
+    // Cast animation is not progress: blocked shots and healing can leave
+    // the current target at the same HP while auto keeps casting.
+    if (f.hp < (l.tgtLowHp ?? Infinity)) {
+      l.tgtLowHp = f.hp;
+      l.tgtHitT = t;
+    }
+    if (n && t - (l.tgtHitT ?? t) > 5) {
+      replacement = c8(d.filter(target => target !== f))
+        || c8(A.filter(target => target !== f && !(e.get(target) > t)));
+      if (replacement) e.set(f, t + 8);
+    }
+    if (!replacement && (!h || h === f || q0(v, h) > distance * 0.5 - 40)) return f;
   }
-  const g = (f && d.includes(f) && e.get(f) > t && c8(d.filter((u) => u !== f))) || h;
-  if (g !== l.tgt && ((l.tgt = g), (l.tgtHitT = t), (l.tgtD = g ? q0(v, g) : 1e9), e.size > 50))
-    for (const [u, w] of e) (w <= t || u.dead) && e.delete(u);
+  const g = replacement || h;
+  if (g !== l.tgt) {
+    l.tgt = g;
+    l.tgtHitT = t;
+    l.tgtD = g ? q0(v, g) : Infinity;
+    l.tgtLowHp = g?.hp;
+    if (e.size > 50) for (const [target, expires] of e) {
+      if (expires <= t || target.dead) e.delete(target);
+    }
+  }
   return g;
 };
 
@@ -826,8 +843,6 @@ var oD = function () {
   if (a > i || (!skillIgnoresTerrain(e) && !mt(v.x, v.y, t.x, t.y)))
     return ((l.moveTo = (hA() && l.clickHold) || ($1() && !(hA() && l.manTgt === t)) ? null : t), 0.05);
   ((l.moveTo = null),
-    (l.tgtHitT = l.clock || 0),
-    (l.tgtD = 0),
     o4(e),
     typeof Y !== "undefined" && Y.stopAfterCast(),
     e.cd && ((l.skCd = l.skCd || {})[e.id] = (l.clock || 0) + e.cd),

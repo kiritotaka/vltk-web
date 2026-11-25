@@ -76,8 +76,6 @@ var jm = function (A, n) {
     ? skillCastDistance(v, n) - n.r / QA > g_
       ? ((l.moveTo = (hA() && l.clickHold) || ($1() && !(hA() && l.manTgt === n)) ? null : n), 0.05)
       : ((l.moveTo = null),
-        (l.tgtHitT = l.clock || 0),
-        (l.tgtD = 0),
         o4(A), beginActorCast(v, actorAttackTiming(v, A).cycleSeconds, () => { l_(A, n); G8(A.id); }),
         typeof Y !== "undefined" && Y.stopAfterCast(),
         A.cd && ((l.skCd = l.skCd || {})[A.id] = (l.clock || 0) + A.cd),
