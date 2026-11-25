@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { readFileSync } = require('node:fs');
+const { readFileSync, writeFileSync } = require('node:fs');
 const { createServer } = require('../src/server/index.ts');
 const { openDatabase } = require('../src/server/database.ts');
 
@@ -42,4 +42,29 @@ test('client compares server instance, saves player and waits for SQLite sync be
   assert.match(bootstrap, /if \(queue\.length\)/);
   assert.match(bootstrap, /location\.reload\(\)/);
   assert.match(game, /addEventListener\('volam:save-before-reload'/);
+});
+
+test('a production process serves its startup bundle even after another build changes files', async () => {
+  const db = openDatabase(':memory:');
+  const { app } = createServer({ db, development: false, downloadAssets: false });
+  const generated = ['src/client/game.js', 'src/client/game.js.map'];
+  const original = generated.map(file => readFileSync(file));
+  try {
+    const before = await Promise.all(['/app/game.js', '/app/game.js.map'].map(url => app.inject(url)));
+    assert.ok(before.every(response => response.statusCode === 200));
+    writeFileSync(generated[0], '/* another checkout version */');
+    writeFileSync(generated[1], '{}');
+    for (const [i, url] of ['/app/game.js', '/app/game.js.map'].entries()) {
+      const result = await app.inject(url);
+      assert.equal(result.body, before[i].body);
+      const head = await app.inject({ method: 'HEAD', url });
+      assert.equal(head.statusCode, 200);
+      assert.equal(head.body, '');
+      assert.equal(Number(head.headers['content-length']), Buffer.byteLength(before[i].body));
+    }
+  } finally {
+    for (const [i, file] of generated.entries()) writeFileSync(file, original[i]);
+    await app.close();
+    db.close();
+  }
 });

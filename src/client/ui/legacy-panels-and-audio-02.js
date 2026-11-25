@@ -369,6 +369,7 @@ var An = function () {
     `<div class="invbar"><span>${o.inv.length + (typeof arenaSimulator !== "undefined" && arenaSimulator ? arenaSimulator.warInventory.slots : 0)}/${INV_MAX}</span><select id="iSort" title="Sắp xếp hiển thị">${Nv.map(([p, P]) => `<option value="${p}" ${(o.invSort || "new") === p ? "selected" : ""}>${P}</option>`).join("")}</select><span class="sp"></span>
     <button class="btn sm" id="bStash">Kho chung</button><button class="btn sm" id="bDonKho">🧹 Dọn kho</button><button class="btn sm" id="bBest">Mặc đồ tốt</button><button class="btn sm red" id="bSellAll" ${h.length ? "" : "disabled"}>${h.length ? `Bán ${h.length} món không khớp lọc` : "Không có đồ để bán"}</button></div>
     <div class="invgrid">${typeof arenaSimulator !== "undefined" && arenaSimulator ? arenaSimulator.warInventory.html() : ""}${_v().map(W1).join("")}</div>
+    <section class="card"><b>Vật phẩm giao dịch</b><div id="serverCharacterInventory"></div></section>
     <p class="dim small">${g ? `${g} món đã khóa 🔒 (không tự bán, không bán hàng loạt, không hợp Huyền Tinh). ` : ""}Mở chi tiết món đồ để khóa / mở khóa.</p>
     <div class="btnrow"><button class="btn sm" id="bKtcI">🏮 Kỳ Trân Các</button></div>
     ${
@@ -415,6 +416,7 @@ var An = function () {
       </details>
       <div class="dim small">Hành trang: ${o.inv.length - h.length}/${o.inv.length} món khớp hoặc được bảo vệ. Chạm vào món đồ trên sân để đi nhặt tay. Trên 40 món thì món cũ nhất tự bán. Khi vắng mặt, đồ không khớp tự bán.</div>
     </div>`;
+  if (typeof localMarket !== 'undefined') localMarket.renderInventory(m('#serverCharacterInventory'));
   const w = () => {
     ((a3 = null), $(), Y8());
   };

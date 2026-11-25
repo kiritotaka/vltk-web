@@ -3,6 +3,8 @@ var localMarket = (() => {
   const state = { tab: 'buy', query: '', currency: '', sort: 'new', page: 0 };
   let revision = 0;
   let submitting = false;
+  let inventoryCache = null;
+  const currentSlot = () => typeof y8 === 'function' ? y8() : undefined;
   const money = (amount, unit) => Number(amount).toLocaleString('vi-VN') + (unit === 'knb' ? ' KNB' : ' lượng');
 
   async function api(path, options) {
@@ -55,6 +57,9 @@ var localMarket = (() => {
       status(root, 'Đang xử lý giao dịch…');
       await api('transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pending });
       sessionStorage.removeItem(key);
+      inventoryCache = null;
+      const inventoryPanel = m('#serverCharacterInventory');
+      if (inventoryPanel) renderInventory(inventoryPanel);
       const current = m('#localMarket');
       if (current) void refresh(current, 'Giao dịch đã hoàn tất.');
     } catch (error) {
@@ -76,8 +81,12 @@ var localMarket = (() => {
     const panel = root.querySelector('#mktListings');
     const controls = root.querySelector('#mktPending');
     const params = new URLSearchParams({ q: state.query, currency: state.currency, sort: state.sort, page: String(state.page) });
+    const character = currentSlot();
     try {
-      const [mine, catalog] = await Promise.all([api('mine'), state.tab === 'buy' ? api('listings?' + params) : null]);
+      const [mine, catalog, inventory] = await Promise.all([api('mine'),
+        state.tab === 'buy' ? api('listings?' + params) : null,
+        state.tab === 'sell' && character ? api('inventory/' + character) : { items: [] },
+      ]);
       if (version !== revision || m('#localMarket') !== root) return;
       const key = 'vltk-market-request:' + mine.accountId;
       const pending = sessionStorage.getItem(key);
@@ -103,8 +112,8 @@ var localMarket = (() => {
         root.querySelector('#mktPrev').disabled = state.page === 0;
         root.querySelector('#mktNext').disabled = !catalog.hasMore;
       } else if (state.tab === 'sell') {
-        for (const item of mine.items) {
-          const node = row(item.name);
+        for (const item of [...inventory.items, ...mine.items]) {
+          const node = row(item.name, item.item ? 'Hành trang · Cấp ' + item.item.lvl : 'Kho Chợ');
           const price = document.createElement('input');
           price.type = 'number';
           price.min = '1';
@@ -121,6 +130,7 @@ var localMarket = (() => {
             }
             void transact(root, key, {
               action: 'sell', target: item.id, price: price.valueAsNumber, currency: unit.value, accountId: mine.accountId,
+              ...(item.item ? { character } : {}),
             });
           });
           sell.disabled = !!pending;
@@ -133,15 +143,31 @@ var localMarket = (() => {
             : order.received ? 'Đã nhận' : order.own ? 'Chờ nhận tiền' : 'Chờ nhận vật phẩm';
           const node = row(order.item_name, label + ' · ' + money(order.price, order.currency));
           if (order.status === 'active') addAction(node, 'Hủy', { action: 'cancel', target: order.id });
-          if (order.status === 'sold' && !order.received) addAction(node, 'Nhận', { action: 'receive', target: order.id });
+          if (order.status === 'sold' && !order.received) addAction(node, 'Nhận', { action: 'receive', target: order.id, ...(character ? { character } : {}) });
           panel.append(node);
         }
       }
       status(root, message || (pending ? 'Đang chờ kết quả của yêu cầu trước.' : panel.childElementCount ? '' :
-        state.tab === 'buy' ? 'Chợ chưa có hàng ở bộ lọc này.' : state.tab === 'sell' ? 'Kho Chợ chưa có vật phẩm.' : 'Chưa có giao dịch.'));
+        state.tab === 'buy' ? 'Chợ chưa có hàng ở bộ lọc này.' : state.tab === 'sell' ? 'Hành trang chưa có vật phẩm do máy chủ quản lý để bày bán.' : 'Chưa có giao dịch.'));
     } catch (error) {
       if (version === revision && m('#localMarket') === root) status(root, error.message);
     }
+  }
+
+  function renderInventory(panel) {
+    const slot = currentSlot();
+    if (!slot) return;
+    if (inventoryCache?.slot !== slot || inventoryCache.until < Date.now()) {
+      inventoryCache = { slot, until: Date.now() + 5000, data: api('inventory/' + slot) };
+    }
+    panel.textContent = 'Đang tải Hành trang máy chủ…';
+    void inventoryCache.data.then(({ items }) => {
+      if (!panel.isConnected || currentSlot() !== slot) return;
+      panel.replaceChildren();
+      if (!items.length) { panel.textContent = 'Chưa có vật phẩm do máy chủ quản lý.'; return; }
+      for (const item of items) panel.append(row(item.name, 'Cấp ' + item.item.lvl));
+      panel.append(button('Bày bán', () => open('sell')));
+    }).catch(error => { if (panel.isConnected) panel.textContent = error.message; });
   }
 
   function open(tab = 'buy') {
@@ -157,7 +183,7 @@ var localMarket = (() => {
       </div><div class="row">
         <select id="mktCurrency"><option value="">Mọi tiền tệ</option><option value="gold">Lượng</option><option value="knb">KNB</option></select>
         <select id="mktSort"><option value="new">Mới nhất</option><option value="lo">Giá thấp đến cao</option><option value="hi">Giá cao đến thấp</option></select>
-      </div>` : '<p class="desc">Tài sản Chợ nằm trong kho và ví Chợ của tài khoản.</p>'}
+      </div>` : '<p class="desc">Chọn vật phẩm trong Hành trang do máy chủ quản lý hoặc Kho Chợ.</p>'}
       <div id="mktListings" class="shoplist"></div>
       <div class="btnrow">${state.tab === 'buy' ? `<button class="btn sm" id="mktPrev" disabled>◀</button>
         <span>Trang ${state.page + 1}</span><button class="btn sm" id="mktNext" disabled>▶</button>` : ''}
@@ -188,7 +214,7 @@ var localMarket = (() => {
       void refresh(root);
     });
   }
-  return { open };
+  return { open, renderInventory };
 })();
 
 if (typeof Y0 === 'function') {

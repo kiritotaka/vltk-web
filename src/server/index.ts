@@ -26,6 +26,7 @@ export function createServer({
   const services: ServerServices = {
     db, assets: createAssetCache({ root: PUBLIC_ROOT }), development, combatSandbox, downloadAssets,
     moduleFiles: new Set(bundle.map.sources.map(file => 'app/' + file)),
+    startupBundle: development ? undefined : { code: bundle.code, sourceMap: JSON.stringify(bundle.map) },
   };
   const app = Fastify({
     // TLS terminates at the local nginx proxy; remote clients cannot supply trusted forwarding headers.

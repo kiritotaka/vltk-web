@@ -36,8 +36,14 @@ export function registerStaticRoutes(app: FastifyInstance, services: ServerServi
     const mapAsset = /^app\/maps\/(?:content\/[1-9]\d*|objects)\/[a-zA-Z0-9_./-]+\.(?:png|jpe?g|webp)$/i.test(relative);
     if (relative.split('/').some(part => part === '..' || part.startsWith('.')) || relative.includes('\\') ||
       !(STATIC.has(relative) || appFile || mapAsset || isAssetPath(relative))) return sendJson(reply, 404, { error: 'Not found' });
-    // Cả game thường lẫn arena dùng cùng bundle. Imported TS edits được rebuild khi reload.
-    if (relative === 'app/game.js') {
+    // Keep the production frontend paired with the routes loaded at startup.
+    if (services.startupBundle && (relative === 'app/game.js' || relative === 'app/game.js.map')) {
+      const content = relative.endsWith('.map') ? services.startupBundle.sourceMap : services.startupBundle.code;
+      reply.type(relative.endsWith('.map') ? TYPES['.json'] : TYPES['.js'])
+        .header('Content-Length', Buffer.byteLength(content));
+      return request.method === 'HEAD' ? reply.send() : reply.send(content);
+    }
+    if (services.development && relative === 'app/game.js') {
       for (const source of buildApp().map.sources) services.moduleFiles.add('app/' + source);
     }
     // Keep browser URLs stable while source and public files live separately.

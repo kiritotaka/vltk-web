@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseJsonBody, sendJson } from './http.ts';
+import { characterInventory, marketCharacterSlot, type CharacterSlot } from './market-character-inventory.ts';
 
 const MAX_MONEY = Number.MAX_SAFE_INTEGER;
 const TOKEN = /^[a-zA-Z0-9-]{1,80}$/;
 const currencies = ['gold', 'knb'] as const;
 type Currency = typeof currencies[number];
-type Command = { action: 'sell'; target: string; price: number; currency: Currency }
-  | { action: 'buy' | 'cancel' | 'receive'; target: string };
+type Command = ({ action: 'sell'; target: string; price: number; currency: Currency }
+  | { action: 'buy' | 'cancel' | 'receive'; target: string }) & { character?: CharacterSlot };
+type Grant = { name: string } | { currency: Currency; amount: number } | { character: CharacterSlot; catalogIndex: number };
 type Listing = { id: string; item_id: string; seller_id: string; buyer_id: string | null;
   status: 'active' | 'sold' | 'cancelled'; price: number; currency: Currency;
   seller_received: number; buyer_received: number };
@@ -37,11 +39,12 @@ function command(input: unknown): { requestId: string; data: Command } {
   const body = input as Record<string, unknown>;
   const requestId = token(body.requestId);
   const target = token(body.target);
+  const scope = body.character === undefined ? {} : { character: marketCharacterSlot(body.character) };
   switch (body.action) {
-    case 'sell': return { requestId, data: { action: 'sell', target, price: amount(body.price), currency: currency(body.currency) } };
+    case 'sell': return { requestId, data: { action: 'sell', target, price: amount(body.price), currency: currency(body.currency), ...scope } };
     case 'buy':
     case 'cancel':
-    case 'receive': return { requestId, data: { action: body.action, target } };
+    case 'receive': return { requestId, data: { action: body.action, target, ...scope } };
     default: return fail(400, 'Thao tác Chợ không hợp lệ.');
   }
 }
@@ -95,6 +98,8 @@ export function createMarket(db: DatabaseSync) {
     ) STRICT;
   `);
 
+  const characters = characterInventory(db);
+
   function transaction<T>(write: () => T): T {
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -137,6 +142,8 @@ export function createMarket(db: DatabaseSync) {
 
       let listingId = data.target;
       if (data.action === 'sell') {
+        characters.requireSource(data.target, data.character);
+        if (data.character) characters.checkSlot(owner, data.character);
         moveItem(data.target, owner, 'available', owner, 'escrow');
         listingId = randomUUID();
         db.prepare('INSERT INTO market_orders(id,item_id,seller_id,status,price,currency,created_at) VALUES (?,?,?,\'active\',?,?,?)')
@@ -160,6 +167,7 @@ export function createMarket(db: DatabaseSync) {
           if (listing.seller_id !== owner && listing.buyer_id !== owner) fail(404, 'Không tìm thấy tin Chợ.');
           if (listing.status !== 'sold') fail(409, 'Giao dịch chưa hoàn tất.');
           if (listing.buyer_id === owner && !listing.buyer_received) {
+            if (characters.hasCharacterItem(listing.item_id)) characters.assign(listing.item_id, owner, marketCharacterSlot(data.character));
             moveItem(listing.item_id, owner, 'pending', owner, 'available');
             db.prepare('UPDATE market_orders SET buyer_received=1 WHERE id=?').run(listingId);
           } else if (listing.seller_id === owner && !listing.seller_received) {
@@ -177,10 +185,10 @@ export function createMarket(db: DatabaseSync) {
   }
 
   // Offline issuance only. Stable issuance IDs also make operator retries safe.
-  function issue(id: string, username: string, grant: { name: string } | { currency: Currency; amount: number }) {
+  function issue(id: string, username: string, grant: Grant) {
     token(id);
-    const data: { name: string } | { currency: Currency; amount: number } = 'name' in grant
-      ? { name: grant.name.trim() } : { currency: currency(grant.currency), amount: amount(grant.amount) };
+    const data: Grant = 'character' in grant ? { character: marketCharacterSlot(grant.character), catalogIndex: grant.catalogIndex }
+      : 'name' in grant ? { name: grant.name.trim() } : { currency: currency(grant.currency), amount: amount(grant.amount) };
     if ('name' in data && (!data.name || data.name.length > 100)) fail(400, 'Tên vật phẩm Chợ không hợp lệ.');
     transaction(() => {
       const owner = db.prepare('SELECT id FROM accounts WHERE username=?').get(username)?.id as string | undefined;
@@ -189,9 +197,14 @@ export function createMarket(db: DatabaseSync) {
       const previous = db.prepare('SELECT command FROM market_issuance WHERE id=?').get(id);
       if (previous?.command === signature) return;
       if (previous) fail(409, 'Mã cấp tài sản đã được dùng.');
-      if ('name' in data) db.prepare("INSERT INTO market_items VALUES (?,?,?,?,'available')")
-        .run(randomUUID(), owner, data.name, data.name.normalize('NFC').toLowerCase());
-      else credit(owner, data.currency, data.amount);
+      if ('currency' in data) credit(owner, data.currency, data.amount);
+      else {
+        const id = randomUUID();
+        const item = 'character' in data ? characters.catalogItem(data.catalogIndex) : { name: data.name, payload: undefined };
+        db.prepare("INSERT INTO market_items VALUES (?,?,?,?,'available')")
+          .run(id, owner, item.name, item.name.normalize('NFC').toLowerCase());
+        if ('character' in data && item.payload !== undefined) characters.add(id, owner, data.character, item.payload);
+      }
       db.prepare('INSERT INTO market_issuance VALUES (?,?)').run(id, signature);
     });
   }
@@ -214,7 +227,9 @@ export function createMarket(db: DatabaseSync) {
   function inventory(owner: string) {
     const wallet = Object.fromEntries(currencies.map(unit => [unit, db.prepare(
       'SELECT balance FROM market_wallet WHERE owner_id=? AND currency=?').get(owner, unit)?.balance ?? 0]));
-    const items = db.prepare("SELECT id,name FROM market_items WHERE owner_id=? AND state='available' ORDER BY name,id").all(owner);
+    const items = db.prepare(`SELECT i.id,i.name FROM market_items i
+      WHERE i.owner_id=? AND i.state='available' AND NOT EXISTS
+        (SELECT 1 FROM market_character_items c WHERE c.item_id=i.id) ORDER BY i.name,i.id`).all(owner);
     const orders = db.prepare(`
       SELECT o.id,o.status,o.price,o.currency,i.name AS item_name,o.seller_id=? AS own,
         CASE WHEN o.seller_id=? THEN o.seller_received ELSE o.buyer_received END AS received
@@ -224,13 +239,15 @@ export function createMarket(db: DatabaseSync) {
     return { accountId: owner, wallet, items, orders };
   }
 
-  return { browse, inventory, execute, issue };
+  return { browse, inventory, execute, issue, characterItems: characters.available };
 }
 
 export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }) {
   const market = createMarket(db);
   app.get<{ Querystring: Record<string, unknown> }>('/api/market/listings', (request, reply) =>
     sendJson(reply, 200, market.browse(requireUser(request).id, request.query)));
+  app.get<{ Params: { slot: string } }>('/api/market/inventory/:slot', (request, reply) =>
+    sendJson(reply, 200, { items: market.characterItems(requireUser(request).id, marketCharacterSlot(request.params.slot)) }));
   app.get('/api/market/mine', (request, reply) =>
     sendJson(reply, 200, market.inventory(requireUser(request).id)));
   app.post('/api/market/transactions', (request, reply) =>

@@ -577,9 +577,22 @@ node tools/issue-market-assets.js grant-gold-001 ten_tai_khoan gold 50000
 node tools/issue-market-assets.js grant-knb-001 ten_tai_khoan knb 100
 ```
 
+Để cấp trang bị vào Hành trang máy chủ của một nhân vật, chọn chỉ số (từ 0)
+trong catalog `sets/gold` và chỉ rõ ô `jxidle`, `jxidle_2` hoặc `jxidle_3`:
+
+```powershell
+node tools/issue-market-assets.js char-item-001 ten_tai_khoan character-item jxidle 0
+```
+
+Mục **Vật phẩm giao dịch** trong Hành trang hiển thị tài sản của ô đang
+chơi. Tab **Bày bán** lấy những món này trực tiếp từ máy chủ. Hủy tin trả
+món về ô ban đầu. Người mua mở nhân vật muốn nhận rồi bấm **Nhận** trong
+**Hàng của tôi**. Phần Hành trang này có 40 chỗ do máy chủ quản lý, bao gồm
+chỗ tạm giữ cho tin đang bán.
+
 Mỗi lần cấp dùng một mã riêng. Chạy lại cùng lệnh với cùng mã giữ nguyên
-kết quả. Sau khi mua, người mua nhận vật phẩm vào kho Chợ và người bán nhận
-tiền vào ví Chợ qua tab **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng
+kết quả. Sau khi mua, người mua nhận vật phẩm về Hành trang hoặc Kho Chợ theo
+nguồn của món, còn người bán nhận tiền vào ví Chợ qua tab **Hàng của tôi**. Khi kết nối bị gián đoạn, dùng
 **Gửi lại yêu cầu** trong cùng tab trình duyệt để lấy kết quả hoặc tiếp tục
 yêu cầu đã lưu. Test chạy với SQLite tạm:
 
