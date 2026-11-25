@@ -1,7 +1,9 @@
 // An opt-in development arena with its own database and ten independent profiles.
 var combatSandbox = (function () {
   const config = window.localGameConfig;
-  if (!config || !config.development || !config.combatSandbox) return null;
+  const role = window.localGameAuth?.user?.role || 'user';
+  if (!config || !config.development || !config.combatSandbox ||
+      (role !== 'gm' && role !== 'admin')) return null;
   const key = "jxidle_arena_profiles";
   const selectionKey = "jxidle_arena_selected";
   const optionsKey = "jxidle_arena_options";
