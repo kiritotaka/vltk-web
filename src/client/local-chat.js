@@ -73,17 +73,39 @@
   }
   toggle.addEventListener('click',()=>show(panel.hidden));
   document.getElementById('localChatClose').addEventListener('click',()=>show(false));
-  form.addEventListener('submit',async event=>{
-    event.preventDefault();
-    if(busy) return;
-    const body=input.value.trim();
-    if(!body) return;
-    busy=true; send.disabled=true;
+  async function sendMessage(raw, originInput) {
+    if (busy) return;
+    const body = String(raw || '').trim();
+    if (!body) return;
+    busy = true; send.disabled = true;
     try {
-      await api('/api/chat/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body})});
-      input.value=''; await refresh();
-    } catch(error) {state.textContent='Gửi lỗi: '+error.message;}
-    finally {busy=false;send.disabled=false;}
+      await api('/api/chat/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body}) });
+      originInput.value = '';
+      show(true);
+      await refresh();
+    } catch (error) { state.textContent = 'Gửi lỗi: ' + error.message; show(true); }
+    finally { busy = false; send.disabled = false; }
+  }
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    void sendMessage(input.value, input);
   });
-  setInterval(()=>{if(!panel.hidden)void refresh();},4000);
+  // Existing mobile (u20) and desktop chat inputs used the disabled upstream
+  // Supabase chat. Make their Send buttons work with the authenticated server.
+  for (const selector of ['#u20in', '#chatIn']) {
+    const oldForm = document.querySelector(selector);
+    if (!oldForm) continue;
+    oldForm.addEventListener('submit', event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const oldInput = oldForm.querySelector('input');
+      if (oldInput) void sendMessage(oldInput.value, oldInput);
+    }, true);
+  }
+  const oldToggle = document.getElementById('chatBtn');
+  if (oldToggle) oldToggle.addEventListener('click', event => {
+    event.stopImmediatePropagation();
+    show(true);
+  }, true);
+  setInterval(() => { if (!panel.hidden) void refresh(); }, 4000);
 })();
