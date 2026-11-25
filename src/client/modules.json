@@ -2889,6 +2889,7 @@
       ]
     },
     {"file":"local-chat.js","symbols":[]},
+    {"file":"online/local-market-01.js","symbols":["localMarket"]},
     {"file":"core/asset-preload-01.js","symbols":[]}
   ]
 }
