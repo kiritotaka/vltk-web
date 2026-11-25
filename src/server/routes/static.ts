@@ -15,7 +15,7 @@ const TYPES: Record<string, string> = {
   '.gif': 'image/gif', '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
   '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
 };
-const STATIC = new Set(['index.html', 'data.js', 'setvi.js', 'jxlook.js', 'style.css', 'jx1ui.css',
+const STATIC = new Set(['index.html', 'market.html', 'market.js', 'data.js', 'setvi.js', 'jxlook.js', 'style.css', 'jx1ui.css',
   'jx1ui2.css', 'ui20.css', 'manifest.json', 'sw.js', 'client/bootstrap.js', 'client/loading.js', 'fonts/ibm-plex-mono.css',
   'app/maps/availability.json']);
 for (const npc of npcCatalog) STATIC.add(npc.image);
