@@ -17,6 +17,10 @@ test('auto-deploy is an explicit one-command production supervisor',()=>{
   assert.match(text,/await stopServer\(\)/);
   assert.match(text,/git\('merge','--ff-only',target\)/);
   assert.match(text,/!clean\(\)/);
+  // A CRLF / stale-index-only status must not block auto-deploy; real tracked
+  // content changes are still refused by Git's exit status.
+  assert.match(text,/\['diff','--quiet','HEAD','--'\]/);
+  assert.doesNotMatch(text,/git\('status','--porcelain'/);
   assert.match(text,/child\.send\('volam:shutdown'\)/);
   const server=fs.readFileSync('src/server/index.ts','utf8');
   assert.match(server,/message === 'volam:shutdown'/);
