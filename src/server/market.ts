@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createTraderRings } from './trader-rings.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseJsonBody, sendJson } from './http.ts';
@@ -92,6 +93,10 @@ export function createMarket(db: DatabaseSync) {
       command TEXT NOT NULL,
       result TEXT NOT NULL,
       PRIMARY KEY(owner_id, request_id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS market_npc_ring_claims (
+      owner_id TEXT PRIMARY KEY REFERENCES accounts(id),
+      character TEXT NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS market_issuance (
       id TEXT PRIMARY KEY,
@@ -265,10 +270,20 @@ export function createMarket(db: DatabaseSync) {
     });
   }
 
+  function claimTraderRings(owner: string, character: CharacterSlot) {
+    return transaction(() => {
+      const prior = db.prepare('SELECT character FROM market_npc_ring_claims WHERE owner_id=?').get(owner);
+      if (prior) return { alreadyClaimed: true, character: prior.character };
+      legacy.receiveTrustedEquipment(owner, character, createTraderRings(db));
+      db.prepare('INSERT INTO market_npc_ring_claims VALUES (?,?)').run(owner, character);
+      return { alreadyClaimed: false, character };
+    });
+  }
+
   const characterItems = (owner: string, slot: CharacterSlot) =>
     [...characters.available(owner, slot), ...legacy.available(owner, slot)];
 
-  return { browse, inventory, execute, issue, characterItems, approveTransfer, baselineInventory };
+  return { browse, inventory, execute, issue, characterItems, approveTransfer, baselineInventory, claimTraderRings };
 }
 
 export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }) {
@@ -277,6 +292,8 @@ export function registerMarket(app: FastifyInstance, db: DatabaseSync, requireUs
     sendJson(reply, 200, market.browse(requireUser(request).id, request.query)));
   app.get<{ Params: { slot: string } }>('/api/market/inventory/:slot', (request, reply) =>
     sendJson(reply, 200, { items: market.characterItems(requireUser(request).id, marketCharacterSlot(request.params.slot)) }));
+  app.post<{ Params: { slot: string } }>('/api/market/trader-rings/:slot', (request, reply) =>
+    sendJson(reply, 200, market.claimTraderRings(requireUser(request).id, marketCharacterSlot(request.params.slot))));
   app.get('/api/market/mine', (request, reply) =>
     sendJson(reply, 200, market.inventory(requireUser(request).id)));
   app.post('/api/market/transactions', (request, reply) =>

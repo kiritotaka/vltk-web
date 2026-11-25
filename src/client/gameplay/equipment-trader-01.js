@@ -224,7 +224,8 @@ var equipmentTrader = (function () {
       </div><div class="trader-fields"><h4>Dòng thuộc tính</h4><label>Số dòng<select data-trader="count">${Array.from({ length: maxLines }, (_, i) => i + 1).map(i => option(i, String(i), count === i)).join("")}</select></label>${lineFields}</div></div>`;
       const setLabel = selection.kind === "thientu" ? "Thiên Tứ" : "Hoàng Kim";
       const goldBody = `<div class="trader-layout"><div class="trader-fields"><label>Môn phái<select data-trader="faction">${Object.entries(I).filter(([, faction]) => !faction.novice && faction.skills?.length).map(([key, faction]) => option(key, faction.n, key === selection.faction)).join("")}</select></label><label>Bộ ${setLabel}<select data-trader="set">${sets.map(set => option(set.key, `${set.n} · ${set.items.length} món`, set.key === selection.set)).join("")}</select></label><p>Nhận toàn bộ ${items.length} món của bộ đã chọn, gồm cả các dòng ẩn của bộ.</p></div><div><h4>Xem trước trọn bộ</h4><p class="dim small">Ảnh và chỉ số tối đa để tham khảo; khi nhận mỗi dòng sẽ roll 90%–100%.</p><div class="trader-preview">${items.map((item, index) => `<button class="trader-piece" data-trader-inspect="${index}" title="Xem thuộc tính ${D(item.n)}"><img src="${D(item.ic)}" alt="${D(item.n)}"><span>${D(item.n)}</span></button>`).join("")}</div><div class="trader-details">${items[0] ? details(items[0]) : ""}</div></div></div>`;
-      const ringsBody = `<section class="trader-rings"><h4>Càn Khôn Giới Chỉ</h4><p class="dim small">Nhận 2 nhẫn Hoàng Kim gốc, mỗi nhẫn +2 tất cả kỹ năng. Cần 2 ô trống.</p><button class="btn" data-trader-rings ${o.inv.length + 2 > INV_MAX ? "disabled" : ""}><img src="img/i/g44.png" alt="" width="24" height="24">Nhận 2 nhẫn Càn Khôn Giới Chỉ</button></section>`;
+      const serverRings = !!window.localGameAuth?.user && window.localGameConfig?.development !== true;
+      const ringsBody = `<section class="trader-rings"><h4>Càn Khôn Giới Chỉ</h4><p class="dim small">Nhận 2 nhẫn Hoàng Kim gốc, mỗi nhẫn +2 tất cả kỹ năng. Cần 2 ô trống.${serverRings ? " Mỗi tài khoản nhận một lần." : ""}</p><button class="btn" data-trader-rings ${o.inv.length + 2 > INV_MAX ? "disabled" : ""}><img src="img/i/g44.png" alt="" width="24" height="24">Nhận 2 nhẫn Càn Khôn Giới Chỉ</button></section>`;
       J(`<section class="equipment-trader"><h3>Thần Trang Sứ Giả</h3><p class="desc">Chọn trang bị · thuộc tính ngẫu nhiên 90%–100% tối đa. Nhận miễn phí, đồ được khóa để giữ trong túi.</p><div class="btnrow"><button class="btn ${selection.kind === "blue" ? "on" : ""}" data-trader-kind="blue">Đồ xanh cấp 1–10</button><button class="btn ${selection.kind === "gold" ? "on" : ""}" data-trader-kind="gold">Hoàng Kim môn phái</button><button class="btn ${selection.kind === "thientu" ? "on" : ""}" data-trader-kind="thientu">Thiên Tứ môn phái</button><button class="btn ${selection.kind === "rings" ? "on" : ""}" data-trader-kind="rings">Càn Khôn Giới Chỉ</button></div>${selection.kind === "rings" ? ringsBody : selection.kind === "blue" ? blueBody : goldBody}${selection.kind !== "rings" ? `<p role="status">${D(message || error || `Hành trang: ${o.inv.length}/${INV_MAX} ô · Cần ${items.length} ô trống.`)}</p><button class="btn" data-trader-receive ${error || !items.length || o.inv.length + items.length > INV_MAX ? "disabled" : ""}>${selection.kind !== "blue" ? `Nhận trọn bộ · ${items.length} món` : "Nhận trang bị"}</button>${compatibleBody}` : `<p role="status">${D(message)}</p>`}</section>`, () => {
         const root = m("#mBody .equipment-trader");
         root.onchange = event => {
@@ -254,6 +255,24 @@ var equipmentTrader = (function () {
           else if (button.hasAttribute("data-trader-compatible")) {
             try { const received = tradeCompatible(selection); render(`Đã nhận đủ ${received.length} món xanh tương thích ngũ hành vào Hành trang.`); }
             catch (reason) { render(reason.message); }
+          }
+          else if (button.hasAttribute("data-trader-rings") && serverRings) {
+            button.disabled = true;
+            const slot = y8();
+            if (typeof $ === "function") $();
+            void (async () => {
+              try {
+                await window.localGameStorage.flush();
+                if (window.localGameStorage.pending) throw new Error("Hãy đợi Hành trang đồng bộ rồi thử lại.");
+                const response = await fetch("/api/market/trader-rings/" + slot, { method: "POST" });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "Không nhận được trang bị.");
+                if (result.character === slot) location.reload();
+                else k("Tài khoản đã nhận nhẫn ở ô nhân vật khác.");
+              } catch (reason) {
+                if (root.isConnected) render(reason.message);
+              }
+            })();
           }
           else if (button.hasAttribute("data-trader-rings")) {
             try { grantRings(); render("Đã nhận 2 nhẫn Càn Khôn Giới Chỉ vào Hành trang."); }

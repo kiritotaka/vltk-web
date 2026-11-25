@@ -119,6 +119,29 @@ export function legacyMarketInventory(db: DatabaseSync) {
     return id;
   }
 
+  function receiveTrustedEquipment(owner: string, slot: CharacterSlot, equipment: Omit<Item, 'uid'>[]) {
+    const save = load(owner, slot);
+    const inventory = save.state.inv as Item[];
+    const expansion = Math.max(0, Math.min(3, Number(save.state.invX) | 0));
+    if (inventory.length + equipment.length > 60 + 60 * expansion) error('Hành trang không đủ chỗ.');
+    const next = Number(save.state.uid);
+    if (!Number.isSafeInteger(next) || next < 1 || next > Number.MAX_SAFE_INTEGER - equipment.length)
+      error('Bộ đếm vật phẩm trong save không hợp lệ.');
+    const registered = db.prepare('SELECT uid FROM market_inventory_transfers WHERE owner_id=? AND slot=?').all(owner, slot);
+    const used = new Set([...inventory.map(item => item?.uid), ...registered.map(row => Number(row.uid))]);
+    for (let uid = next; uid < next + equipment.length; uid++) {
+      if (used.has(uid)) error('Mã vật phẩm đang được sử dụng. Hãy tải lại Hành trang.');
+    }
+    for (const [index, item] of equipment.entries()) {
+      inventory.push({ ...item, uid: next + index });
+    }
+    save.state.uid = next + equipment.length;
+    db.prepare('UPDATE account_storage SET value=? WHERE account_id=? AND key=?').run(save.encode(), owner, slot);
+    for (let uid = next; uid < next + equipment.length; uid++) approve(owner, slot, uid);
+    // Make existing browser outboxes reload the new Hành trang instead of overwriting it.
+    db.prepare('UPDATE accounts SET generation=? WHERE id=?').run(randomUUID(), owner);
+  }
+
   function baseline(owner: string) {
     const previous = db.prepare('SELECT item_count FROM market_inventory_baselines WHERE owner_id=?').get(owner);
     if (previous) return { alreadyRecorded: true, count: Number(previous.item_count) };
@@ -196,5 +219,5 @@ export function legacyMarketInventory(db: DatabaseSync) {
     });
   }
 
-  return { approve, baseline, check, sanitize, take, available };
+  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment };
 }
