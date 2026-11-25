@@ -10,7 +10,7 @@ var NP = function (A) {
   (n.setTransform(H1, 0, 0, H1, 0, 0),
     n.clearRect(0, 0, M0.w, M0.h),
     OP(A),
-    n.setTransform(H1, 0, 0, H1, -Math.round(B0.x) * H1, -Math.round(B0.y) * H1));
+    n.setTransform(H1 * gameWorldZoom, 0, 0, H1 * gameWorldZoom, -Math.round(B0.x) * H1 * gameWorldZoom, -Math.round(B0.y) * H1 * gameWorldZoom));
   const t = l.bgImg;
   (EP(n, t), mapScene.drawShadows(n), (n.textAlign = "center"));
   if (typeof gameMaster !== "undefined" && gameMaster) gameMaster.drawSkillRange(n);
@@ -97,14 +97,14 @@ var NP = function (A) {
   }
   ((n.globalAlpha = 1), (l.fx = l.fx.filter((a) => a.life > 0)), (n.textAlign = "center"));
   const living = l.enemies.filter((a) => !a.dead);
-  const simVisible = (a) => a.x >= B0.x - 160 && a.x <= B0.x + M0.w + 160 &&
-    a.y >= B0.y - 160 && a.y <= B0.y + M0.h + 160;
+  const simVisible = (a) => a.x >= B0.x - 160 && a.x <= B0.x + worldViewWidth() + 160 &&
+    a.y >= B0.y - 160 && a.y <= B0.y + worldViewHeight() + 160;
   // Hidden SIMs keep their animation clocks without preparing sprites/nameplates.
   for (const a of living) if (a.arenaSim && !simVisible(a) &&
       typeof arenaSimulator !== "undefined" && arenaSimulator?.advanceAnimation)
     arenaSimulator.advanceAnimation(a, A, true);
   const crowd = crowdRenderer.update(living, A,
-    { x: B0.x, y: B0.y, width: M0.w, height: M0.h },
+    { x: B0.x, y: B0.y, width: worldViewWidth(), height: worldViewHeight() },
     new Set([l.tgt, l.manTgt, l.clickedTarget].filter(Boolean)),
     l.txt.filter((label) => label.life > 0 && label.target && label.target !== v &&
       !label.target.arenaSim && ["normal", "elite", "boss"].includes(label.target.cls))
@@ -122,7 +122,7 @@ var NP = function (A) {
     .filter((a) => a.arenaSim ? simVisible(a) : crowd.bodies.has(a))
     .concat(
       [{ hero: !0, y: v.y }],
-      mapScene.worldObjects({ x: B0.x, y: B0.y, width: M0.w, height: M0.h }),
+      mapScene.worldObjects({ x: B0.x, y: B0.y, width: worldViewWidth(), height: worldViewHeight() }),
       typeof othEnts == "function" ? othEnts() : [],
       typeof rm == "function" ? rm() : [],
       typeof equipmentTrader !== "undefined" ? equipmentTrader.entities() : [],
@@ -277,8 +277,8 @@ var NP = function (A) {
   updateDamageLabels(l.txt, A, n);
   for (const a of crowd.selectLabels(l.txt)) {
     if (!a.target) { a.life -= A; a.y -= 32 * A; }
-    if (a.life <= 0 || a.x < B0.x - 64 || a.x > B0.x + M0.w + 64 ||
-      a.y < B0.y - 64 || a.y > B0.y + M0.h + 64) continue;
+    if (a.life <= 0 || a.x < B0.x - 64 || a.x > B0.x + worldViewWidth() + 64 ||
+      a.y < B0.y - 64 || a.y > B0.y + worldViewHeight() + 64) continue;
     ((n.globalAlpha = E(a.life / 0.5, 0, 1)),
       (n.font = `${a.size}px "IBM Plex Mono", monospace`),
       (n.strokeStyle = "#111"),
