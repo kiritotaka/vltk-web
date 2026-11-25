@@ -78,6 +78,11 @@ export async function startServer(): Promise<void> {
   };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
+  // The Windows auto-deploy supervisor uses IPC instead of force-killing a
+  // database-writing process. This closes Fastify and SQLite before restart.
+  process.on('message', message => {
+    if (message === 'volam:shutdown') void stop();
+  });
 }
 
 if (isMainModule(import.meta.url)) startServer().catch(error => { console.error(error); process.exitCode = 1; });
