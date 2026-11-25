@@ -98,7 +98,9 @@ export function mountStatusInspector() {
   }
   function refresh(force = false) {
     const playing = typeof o !== 'undefined' && !!o?.fac;
-    toggle.hidden = !playing;
+    // This is a developer-only status inspector, not a combat FX toggle.
+    // Keep its launcher hidden in normal gameplay without changing combat effects.
+    toggle.hidden = true;
     if (!playing) { setOpen(false);previous = null;signature = '';owner = '';return; }
     if (panel.hidden) return;
     try {
