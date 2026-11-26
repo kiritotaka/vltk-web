@@ -114,6 +114,7 @@ export function createBattlefieldCombat(
   Object.assign(globals, {
     performance: { now:() => world.clock*1000 }, A0: globals.JFX, Z0: { g: true }, l: world, v: spectator,
     mt: sight, R2: (x: number,y: number) => canStandAt(grid,x,y), showDamageNumber() {}, Tt() {}, W3() {}, G8() {},
+    combatLog: null, // The browser combat log wraps client damage handlers.
     r0: { 0: { anim: '' } }, ea: () => 1,
   });
 

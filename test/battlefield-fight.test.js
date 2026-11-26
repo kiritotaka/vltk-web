@@ -448,3 +448,23 @@ test('Tống Kim Auto dismounts on the server before a grounded faction attack',
   assert.equal(own().mounted,false);
   assert.ok(own().casts>0);
 });
+
+test('a native Tống Kim miss keeps the server contact queue running', (t)=>{
+  const {createBattlefieldCombat}=require('../src/server/battlefield-combat.ts');
+  const report=t.mock.method(console,'error',()=>{});
+  const combat=createBattlefieldCombat(()=>{});
+  const build=combat.computerProfile('wudang');
+  const actor=(id, team, x)=>({
+    id,team,kind:'player',profile:build.profile,stats:build.stats,x,y:2784,
+    hp:1000,max:1000,mana:1000,def:100000,res:{},series:0,stun:0,
+    poison:0,poisonDmg:0,slowT:0,slowPower:0,cooldown:0,actionRevision:0,r:16,
+  });
+  const source=actor('song','song',680), target=actor('jin','jin',700);
+  const skill={...build.stats.main,rad:150,useAR:true,ar:1};
+  let released=false;
+  assert.equal(combat.cast(source,target,()=>[source,target],skill,()=>{released=true;}),true);
+  for(let i=0;i<120;i++)combat.advance(1/30);
+  assert.equal(released,true);
+  assert.equal(target.hp,1000);
+  assert.equal(report.mock.callCount(),0,report.mock.calls[0]?.arguments[1]?.stack);
+});
