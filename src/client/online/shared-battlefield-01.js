@@ -22,9 +22,10 @@ var sharedBattlefield = (() => {
     const {combat,teams,finished} = session.state;
     const result=combat.score.song===combat.score.jin?'Hai phe hòa':combat.score.song>combat.score.jin?'Phe Tống thắng':'Phe Kim thắng';
     const list = combat.players.filter(actor=>actor.kind === 'player').sort((a,b)=>b.points-a.points || a.name.localeCompare(b.name,'vi'));
+    const troopCount = (side) => side.humans+' người chơi · '+(side.sims||0)+' SIM · '+(side.soldiers||0)+' NPC';
     J('<h3>Bảng xếp hạng · Tống Kim</h3>' + (finished?'<p><strong>'+result+'</strong></p>':'') +
-      '<p>Tống: '+ combat.score.song +' quân trạng · '+teams.song.humans+'/100 người chơi</p>' +
-      '<p>Kim: '+ combat.score.jin +' quân trạng · '+teams.jin.humans+'/100 người chơi</p>' +
+      '<p>Tống: '+ combat.score.song +' quân trạng · '+troopCount(teams.song)+'</p>' +
+      '<p>Kim: '+ combat.score.jin +' quân trạng · '+troopCount(teams.jin)+'</p>' +
       '<table><thead><tr><th>Hạng</th><th>Nhân vật</th><th>Phe</th><th>Điểm</th></tr></thead><tbody>' +
       list.map((actor,index)=>'<tr><td>'+(index+1)+'</td><td>'+D(actor.name)+'</td><td>'+
         (actor.team==='song'?'Tống':'Kim')+'</td><td>'+actor.points+'</td></tr>').join('') + '</tbody></table>');
@@ -143,6 +144,8 @@ var sharedBattlefield = (() => {
   function apply(state) {
     if (!session) return;
     const previousSlots=session.state.combat.potionSlots;
+    const interval=(state.serverTime-session.state.serverTime)/1000;
+    const receivedAt=performance.now();
     session.state = state;
     const changed=(key)=>previousSlots?.[key]?.n!==state.combat.potionSlots?.[key]?.n || previousSlots?.[key]?.name!==state.combat.potionSlots?.[key]?.name;
     if((changed("life")||changed("mana"))&&typeof qA==="function")qA();
@@ -158,7 +161,8 @@ var sharedBattlefield = (() => {
       session.deaths=me.deaths;
       Object.assign(v,{x:me.x,y:me.y,px:me.x,py:me.y});
       Y.target=null;
-      l.clickedTarget=l.manTgt=null;
+      Object.assign(l,{deadT:0,clickedTarget:null,manTgt:null,moveTo:null,pickTarget:null});
+      session.route=session.lootProgress=session.predictedInput=null;
     }
     if (session.casts !== undefined && session.casts !== me.casts) { v.act="at";v.actT=0; }
     session.casts=me.casts;
@@ -189,7 +193,13 @@ var sharedBattlefield = (() => {
       }
       if (entity.casts !== undefined && entity.casts !== actor.casts) { entity.act="at"; entity.actT=0; }
       entity.casts=actor.casts;
-      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,dead:false,stun:actor.stun?1:0,sharedSupport:actor.support});
+      const dx=actor.x-entity.remoteX,dy=actor.y-entity.remoteY;
+      const jump=entity.deaths!==actor.deaths || (Number.isFinite(dx) && Math.hypot(dx,dy)>160);
+      const estimate=!jump && interval>0 && interval<.75 && Math.hypot(dx,dy)<interval*500;
+      if(jump){entity.x=actor.x;entity.y=actor.y;}
+      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,
+        velocityX:estimate?dx/interval:0,velocityY:estimate?dy/interval:0,receivedAt,deaths:actor.deaths,
+        dead:false,stun:actor.stun?1:0,sharedSupport:actor.support});
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
@@ -237,9 +247,9 @@ var sharedBattlefield = (() => {
     }
   }
 
-  function enter(state) {
+  function enter(state,slot) {
     const previous = {map:Z0.key, hero:{...v}, world:Object.fromEntries(fields.map(key=>[key,l[key]])), ctrl:o.ctrl, autoMap:o.autoMap};
-    session={ state, previous, position:null, deaths:-1, sequence:state.player.movementSequence || 0,
+    session={ state, slot, previous, position:null, deaths:-1, sequence:state.player.movementSequence || 0,
       nextSync:0, finished:false, sending:false, ref:{matchId:state.matchId,participantId:state.player.id} };
     l.ground=[];
     ma(9003);
@@ -278,10 +288,11 @@ var sharedBattlefield = (() => {
       $();
       await window.localGameStorage?.flush();
       if (window.localGameStorage?.pending) throw new Error('Hãy đợi lưu nhân vật xong rồi thử lại.');
-      const state=await request(action,{team,slot:y8()});
+      const slot=y8();
+      const state=await request(action,{team,slot});
       if(action==='register')return state;
       n0(true);
-      enter(state);
+      enter(state,slot);
     } catch(error) {
       const status=m('#shared-war-status');
       if(status) status.textContent=error.message;
@@ -400,12 +411,17 @@ var sharedBattlefield = (() => {
     if (!current?.position) return;
     l.clock=(l.clock||0)+dt;
     if(typeof advanceSkillContacts==="function" && (l.fx.length || l.combatProjectiles.length || l.fxQ.length)) advanceSkillContacts(dt);
-    const mix=Math.min(1,dt*12);
+    const mix=1-Math.exp(-dt*16);
+    const now=performance.now();
     const [inputX,inputY]=Qv();
     const manualMove = inputX || inputY;
-    if(manualMove && typeof gt==="function" && Math.hypot(current.position.x-v.x,current.position.y-v.y)<22){
+    const prediction=manualMove ? {x:inputX,y:inputY} :
+      (!current.wasMoving && o.ctrl!=="manual" && now-(current.lastSync||0)<220 ? current.predictedInput : null);
+    if(prediction && (prediction.x || prediction.y) && !current.position.stun && v.act!=="at" &&
+        typeof gt==="function" && Math.hypot(current.position.x-v.x,current.position.y-v.y)<30){
       const speed=(typeof Ra==="function"?Ra():1)*(current.position.support?.speed || 1);
-      gt(v,v.x+inputX*150*speed*dt,v.y+inputY*150*speed*dt);
+      const step=150*speed*dt/Math.max(1,Math.hypot(prediction.x,prediction.y));
+      gt(v,v.x+prediction.x*step,v.y+prediction.y*step);
     } else {
       v.x+=(current.position.x-v.x)*mix;
       v.y+=(current.position.y-v.y)*mix;
@@ -419,12 +435,12 @@ var sharedBattlefield = (() => {
         actor.x=actor.remoteX;actor.y=actor.remoteY;actor.moving=false;
         continue;
       }
-      const x=actor.remoteX-actor.x,y=actor.remoteY-actor.y;
+      const lead=actor.act==="at" || actor.stun ? 0 : Math.min(.09,Math.max(0,(now-actor.receivedAt)/1000));
+      const x=actor.remoteX+actor.velocityX*lead-actor.x,y=actor.remoteY+actor.velocityY*lead-actor.y;
       actor.moving=Math.abs(x)+Math.abs(y)>1;
       if(actor.moving) { actor.face=x<0?-1:1;actor.dir=kn(x,y); }
       actor.x+=x*mix;actor.y+=y*mix;
     }
-    const now=performance.now();
     if(current.finished || current.sending || (now<current.nextSync && !(manualMove&&!current.wasMoving&&now-(current.lastSync||0)>75))) return;
     let [x,y]=[inputX,inputY];
     const loot=!x&&!y ? lootTarget(current) : null;
@@ -439,19 +455,43 @@ var sharedBattlefield = (() => {
     }
     const scale=Math.max(1,Math.hypot(x,y));
     current.lastSync=now;current.wasMoving=!!manualMove;
+    current.predictedInput={x:x/scale,y:y/scale};
     current.nextSync=now+(x||y||aim?125:300);
     current.sending=true;
     const skill=o.mainLock ? (o.main==='basic'?0:Number(o.main)||null) : null;
     void request('sync',{...current.ref,target:aim?.id||null,skill,
-      movement:{x:x/scale,y:y/scale,sequence:++current.sequence}})
+      movement:{...current.predictedInput,sequence:++current.sequence}})
       .then(state=>{if(session===current) apply(state);})
       .catch(error=>{
         if(session!==current) return;
-        if(error.status===409 || error.status===401) {void exit(false);k(error.message);return;}
+        if(error.status===409)return resume(current);
+        if(error.status===401) {void exit(false);k(error.message);return;}
         current.nextSync=performance.now()+1000;
       })
       .finally(()=>{current.sending=false;});
   }
+  async function resume(current) {
+    try {
+      const state=await request('join',{matchId:current.ref.matchId,team:current.state.player.team,slot:current.slot});
+      if(session!==current)return;
+      if(state.matchId!==current.ref.matchId || !state.player) {
+        void exit(false);k('Trận Tống Kim bạn tham gia đã kết thúc.');return;
+      }
+      if(current.ref.participantId!==state.player.id) {
+        current.ref.participantId=state.player.id;
+        current.deaths=-1;
+        current.casts=undefined;
+        current.sequence=state.player.movementSequence||0;
+      }
+      current.nextSync=0;
+      apply(state);
+    } catch(error) {
+      if(session!==current)return;
+      if(error.status===409 || error.status===401) {void exit(false);k(error.message);return;}
+      current.nextSync=performance.now()+1000;
+    }
+  }
+
   function crowdFrame(renderer,actors,dt,view,selected,labels) {
     const current=session;
     const previous=current?.crowd;

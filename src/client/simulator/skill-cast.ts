@@ -29,7 +29,8 @@ interface SkillActorContext {
 /** Same contact/event rules as oD, with every delayed hit bound to its SIM. */
 export function castSimulatorSkill(actor: SimulatorActor, target: LegacyEntity, input: SimulatorSkill,
   valid: () => boolean, targets: () => LegacyEntity[],
-  hit: SkillActorContext['hit'], withContext: SkillActorContext['visual'], onRelease?:()=>void): CombatCast {
+  hit: SkillActorContext['hit'], withContext: SkillActorContext['visual'], onRelease?:()=>void,
+  alreadyReleased = false): CombatCast {
   const events = F5(input), lotus = +input.id! === 336 ? events.find(event => +event.sid === 382) : undefined;
   const snow = +input.id! === 337 ? events.find(event => +event.sid === 338) : undefined;
   const skill = { ...input, ...(lotus ? { impactLotusHandled: true } : {}),
@@ -54,6 +55,7 @@ export function castSimulatorSkill(actor: SimulatorActor, target: LegacyEntity, 
       for (const event of events) withContext(() => eD(skill, contact, available, collided, event, context));
     }
   }, {
+    windup: alreadyReleased ? 0 : undefined,
     targets: live,
     maxHits: contact => +skill.id! === 368 ? 3 : contact === target ? 1 + extra : 1,
     visual: () => { onRelease?.(); withContext(() => G3(actor, target, skill)); },

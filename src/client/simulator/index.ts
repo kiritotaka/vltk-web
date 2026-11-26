@@ -8,7 +8,7 @@ function replayBattlefieldSkill(actor: SimulatorActor, target: LegacyEntity, ski
   // The actors are disposable positions. Contact only drives native visual
   // timing and secondary artwork; the server owns every combat result.
   const targets = [target];
-  castSimulatorSkill(actor,target,skill,()=>true,()=>targets,()=>1,action=>action());
+  castSimulatorSkill(actor,target,skill,()=>true,()=>targets,()=>1,action=>action(),undefined,true);
 }
 
 const simulator = Object.assign(createSimulator(), { replayBattlefieldSkill });

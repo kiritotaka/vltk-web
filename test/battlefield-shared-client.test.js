@@ -7,14 +7,15 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const src=fs.readFileSync('src/client/online/shared-battlefield-01.js','utf8');
   const nodes=new Map(),requests=[],visuals=[];
   let frameFx=0;
-  let input=[1,0], timestamp=0;
+  let input=[1,0], timestamp=0, expired=false, resumed=false;
+  let dialog='';
   const originalEnemy={id:'original'},originalGround={name:'Old loot',x:100,y:200};
   function element() {return {children:[],classList:{add(){},toggle(){},contains:()=>true},style:{},append(...nodes){this.children.push(...nodes);},remove(){this.removed=true;}};}
   const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
   const own={id:'own',kind:'player',name:'Test',team:'song',x:680,y:2784,hp:300,max:300,mana:200,deaths:0,casts:0};
   const enemy={id:'enemy',kind:'player',name:'Other',team:'jin',x:710,y:2784,hp:250,max:250,mana:200,deaths:0,tid:599,faction:'emei',appearance:{sex:1,eq:{}}};
   const snapshot={
-    matchId:'shared',player:{id:'own',team:'song',movementSequence:0},teams:{song:{humans:1},jin:{humans:1}},
+    matchId:'shared',player:{id:'own',team:'song',movementSequence:0},teams:{song:{humans:1,sims:99,soldiers:35},jin:{humans:1,sims:99,soldiers:35}},
     combat:{score:{song:0,jin:0},players:[own,enemy],visuals:[{id:1,actor:"enemy",skill:22,level:10,missiles:3,element:"cold",melee:true,tx:680,ty:2784}]},
   };
   const s={
@@ -22,7 +23,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
     document:{createElement:element,body:element(),addEventListener(){}},
     m:get, o:{ctrl:'auto',autoMap:true}, v:{x:10,y:20}, l:{town:true,enemies:[originalEnemy],ground:[originalGround]},
     Z0:{key:37}, Y:{}, MapsEngine:{getMapBackground:x=>x}, bA:x=>x, Qv:()=>input, WA:()=>({auto:false}), performance:{now:()=>timestamp},Jt:(fac,sex)=>({anim:fac+sex}),
-    ma:id=>{s.Z0.key=id;for(const item of s.l.ground)item.x=400;},n0(){},J(_html,ready){ready?.();}, $(){},y8:()=>'jxidle',
+    ma:id=>{s.Z0.key=id;for(const item of s.l.ground)item.x=400;},n0(){},J(html,ready){dialog=html;ready?.();}, $(){},y8:()=>'jxidle',
     r0:{599:{anim:'enemy'}},kn:()=>0,AbortSignal,crypto:{randomUUID:()=> 'pharmacy-test'},D:value=>String(value),k:error=>{throw Error(error);},
     setTimeout(){},
     advanceSkillContacts(){frameFx++;},
@@ -33,7 +34,17 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
     },
     async fetch(url,options){
       if(url.endsWith('/status'))return {ok:true,json:async()=>({phase:'active',manual:true,endsAt:1000})};
-      requests.push([url,JSON.parse(options.body)]);
+      const body=JSON.parse(options.body);
+      requests.push([url,body]);
+      if(expired && url.endsWith('/sync')){
+        expired=false;
+        return {ok:false,status:409,json:async()=>({error:'Suất tham gia đã hết hiệu lực.'})};
+      }
+      if(url.endsWith('/join') && body.matchId){
+        resumed=true;
+        const player={...own,id:'resumed',hp:300,deaths:1,x:700};
+        return {ok:true,json:async()=>({...snapshot,player:{...snapshot.player,id:player.id},combat:{...snapshot.combat,players:[player,enemy]}})};
+      }
       return {ok:true,json:async()=>snapshot};
     },
   };
@@ -76,6 +87,16 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(requests[3][1].target,"enemy","Auto acquires a hostile player without a click");
   const controls=s.document.body.children[0];
   assert.equal(controls.children.length,4);
+  controls.children[0].onclick();
+  assert.match(dialog,/1 người chơi · 99 SIM · 35 NPC/);
+  expired=true;timestamp=2000;
+  s.sharedBattlefield.tick(.1);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(resumed,true);
+  assert.equal(s.sharedBattlefield.active,true,'Expired lease resumes in the same room');
+  assert.equal(s.Z0.key,9003);
+  assert.equal(s.v.x,700,'Respawn position is applied instead of returning to the field');
+  assert.deepEqual(requests.at(-1),['/api/battlefield/shared/join',{matchId:'shared',team:'song',slot:'jxidle'}]);
   controls.children[1].onclick();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(s.sharedBattlefield.active,false);

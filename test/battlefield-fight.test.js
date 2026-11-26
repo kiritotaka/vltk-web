@@ -84,6 +84,8 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
     assert.equal(status.teams.song.humans,1);
     assert.equal(status.teams.song.sims,99);
     assert.equal(status.teams.song.soldiers,35);
+    const wrongMatch=await post(blue,'join',{team:'song',slot:'jxidle',matchId:'expired-round'});
+    assert.equal(wrongMatch.statusCode,409);
     const a=await post(blue,'join',{team:'song',slot:'jxidle'}), b=await post(red,'join',{team:'jin',slot:'jxidle'});
     assert.equal(a.statusCode,200,a.body);assert.equal(b.statusCode,200,b.body);
     const aRoom=a.json(), bRoom=b.json();
@@ -174,6 +176,11 @@ test('normal Fastify server runs the shared room with live troop slots',async(t)
     const left=await send(cookies[1],'/api/battlefield/shared/leave',{matchId:joined.matchId,participantId:joined.player.id});
     assert.equal(left.json().teams.jin.sims,100);
     assert.equal(left.json().combat.players.filter(actor=>actor.kind==='player').length,1);
+    const resumed=await send(cookies[1],'/api/battlefield/shared/join',{matchId:joined.matchId,team:'jin',slot:'jxidle'});
+    assert.equal(resumed.statusCode,200,resumed.body);
+    assert.equal(resumed.json().matchId,joined.matchId);
+    assert.equal(resumed.json().teams.jin.sims,99);
+    assert.ok(resumed.json().combat.players.some(actor=>actor.team==='jin' && actor.kind==='sim'));
   } finally {await app.close();db.close();}
 });
 

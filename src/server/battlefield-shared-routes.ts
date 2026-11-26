@@ -172,7 +172,7 @@ export function registerSharedBattlefield(
 
   function participate(request:FastifyRequest,reply:import('fastify').FastifyReply, registering:boolean) {
     const { id } = requireUser(request);
-    const { team, slot } = command(request);
+    const { team, slot, matchId } = command(request);
     if ((team !== 'song' && team !== 'jin') || typeof slot !== 'string' || !slots.has(slot)) {
       return invalid('Hãy chọn phe và ô nhân vật hợp lệ.');
     }
@@ -203,6 +203,7 @@ export function registerSharedBattlefield(
       return sendJson(reply,200,availability(id));
     }
     if(!current || !roster.active()) return invalid('Trận chung chưa mở. Hãy báo danh tại Chiêu Mộ Sứ.',409);
+    if(matchId!==undefined && matchId!==current.id) return invalid('Trận Tống Kim bạn tham gia đã kết thúc.',409);
     if(!current.manual){
       const entry=enrollment.get(current.startsAt,id) as Enrollment | undefined;
       if(entry?.team!==team || entry.slot!==slot) return invalid('Hãy vào trận bằng đúng nhân vật và phe đã báo danh.',409);
