@@ -33,6 +33,8 @@ interface Player extends SharedCombatant {
   pharmacyKey?:string;
   points: number;
   requestedTarget: string | null;
+  movement?: { input:BattlefieldMove; until:number; manual:boolean };
+  shortRange?:boolean;
   skillId: number | null;
   casts:number;
   kind: "player" | "sim" | "npc" | "marshal";
@@ -96,7 +98,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   function restore(player:Player) {
     combat.resetSupport(player);
     Object.assign(player, player.home, {
-      dead:false, waypoint:0,
+      dead:false, waypoint:0, movement:undefined,
       hp:player.max, mana:player.stats.mana, cooldown:0, requestedTarget:null,
       stun:0, poison:0, poisonDmg:0, slowT:0, slowPower:0, castT:0, hurtT:0,
       deaths:player.deaths+1, actionRevision:player.actionRevision+1,
@@ -254,6 +256,25 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     const scale=Math.max(Math.hypot(x,y),15);
     Object.assign(player,advanceBattlefieldPosition(player,{x:x/scale,y:y/scale,sequence:1},1000*dt,combat.supportSpeed(player,time)));
   }
+  function attackSkill(player:Player) {
+    const main=player.skillId===0 ? player.stats.basic : player.stats.actives?.find(entry=>entry.id===player.skillId) || player.stats.main;
+    return !main.costLife && player.mana < (main.cost||0) ? player.stats.basic : main;
+  }
+
+  function closeAttack(player:Player) {
+    return player.kind==="player" && !!player.profile.closeAtk && !!player.shortRange;
+  }
+
+  function stepPlayer(player:Player,target:Player|undefined,skill:SharedCombatant["stats"]["main"],dt:number) {
+    const movement=player.movement;
+    if(!movement || movement.until<=time-dt || player.stun>0 || combat.locked(player))return;
+    if(!movement.manual && target && combat.canReach(player,target,skill,closeAttack(player)))return;
+    const elapsed=Math.min(dt,movement.until-(time-dt))*1000;
+    const speed=combat.speed(player);
+    const point=advanceBattlefieldPosition(player,movement.input,elapsed,Number.isFinite(speed)?Math.min(3,speed)*combat.supportSpeed(player,time):1);
+    Object.assign(player,point);
+  }
+
   function tick(dt:number) {
     time += dt;
     if (time >= nextSearch) { updateTargets(); nextSearch=time+.25; }
@@ -271,11 +292,13 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       }
       player.hp = Math.min(player.max,player.hp + (player.stats.regen || 0)*dt);
       player.mana = Math.min(player.stats.mana,player.mana + (player.stats.manaRegen || 0)*dt);
-      const target = player.requestedTarget ? players.get(player.requestedTarget) : undefined;
+      const candidate=player.requestedTarget ? players.get(player.requestedTarget) : undefined;
+      const target=candidate?.dead ? undefined : candidate;
+      const skill=attackSkill(player);
+      if(player.kind==="player")stepPlayer(player,target,skill,dt);
       let cast = false;
-      if (target && !target.dead) {
-        const main = player.skillId === 0 ? player.stats.basic : player.stats.actives?.find((entry:SharedCombatant["stats"]["main"])=>entry.id===player.skillId) || player.stats.main;
-        const skill = (!main.costLife && player.mana < (main.cost || 0)) ? player.stats.basic : main;
+      const manualMoving=player.movement?.manual && player.movement.until>time;
+      if (target && !manualMoving) {
         cast = combat.cast(player,target,actors,skill,()=>{
           if (visuals.length>=192)visuals.shift();
           visuals.push({id:++visualId,actor:player.id,x:player.x,y:player.y,tx:target.x,ty:target.y,
@@ -283,10 +306,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
             targets:skill.targets,phys:skill.phys,ev2:skill.ev2,geo:skill.geo,secondary:!!skill.ev,
             element:Object.entries(skill.parts).reduce((best,[key,value])=>value>(skill.parts[best]||0)?key:best,"phys"),
             target:target.id,melee:skill.melee!==false,until:time+1});
-        });
+        },closeAttack(player));
         if (cast) player.casts++;
       }
-      if (!cast && player.kind !== "player" && (combat.fear(player,time) || !target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
+      if (!cast && player.kind !== "player" && (combat.fear(player,time) || !target || !combat.inRange(player,target,skill))) moveComputer(player,target,dt);
     }
     combat.advance(dt);
     if(time>=nextDropCheck){
@@ -311,14 +334,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   function pruneHumans(active:Set<string>) {
     for (const actor of players.values()) if (actor.kind==="player" && !active.has(actor.id)) leave(actor.id);
   }
-  function moveInput(id:string,direction:BattlefieldMove,elapsed:number) {
+  function moveInput(id:string,direction:BattlefieldMove,manual:boolean) {
     const actor=players.get(id);
-    if (!actor) return undefined;
-    if (actor.stun<=0 && !combat.locked(actor)) {
-      const speed=combat.speed(actor);
-      const point=advanceBattlefieldPosition(actor,direction,elapsed,Number.isFinite(speed)?Math.min(3,speed)*combat.supportSpeed(actor,time):1);
-      Object.assign(actor,point);
-    }
+    if(!actor)return undefined;
+    actor.movement=direction.x || direction.y ? {input:direction,until:time+.25,manual} : undefined;
     return {x:actor.x,y:actor.y};
   }
   function setMounted(id:string,mounted:boolean) {
@@ -329,9 +348,11 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     actor.mountReadyAt=time+combat.mountCooldown;
   }
 
-  function selectSkill(id:string,skillId:number|null) {
+  function selectSkill(id:string,skillId:number|null|undefined,shortRange?:boolean) {
     const actor=players.get(id);
     if (!actor) return;
+    if(typeof shortRange==="boolean")actor.shortRange=shortRange;
+    if (skillId===undefined)return;
     if (skillId === null || skillId === 0 || actor.stats.actives?.some((skill:SharedCombatant["stats"]["main"])=>skill.id===skillId)) actor.skillId=skillId;
   }
   function stock(player:Player):Record<string,number> {
@@ -492,9 +513,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
         .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
+      attack:viewer ? (()=>{const skill=attackSkill(viewer);return {id:skill.id,rad:skill.rad,geo:skill.geo};})() : undefined,
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
-        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0, support:combat.supportStatus(player,time),
+        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, r:player.r, casts:player.casts, stun:player.stun>0, support:combat.supportStatus(player,time),
         mounted:!!player.mounted,
         appearance:!viewer || (Math.abs(player.x-viewer.x)<=1250 && Math.abs(player.y-viewer.y)<=1000) ? player.appearance : undefined,
       })),

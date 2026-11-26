@@ -228,20 +228,22 @@ export function registerSharedBattlefield(
 
   app.post('/api/battlefield/shared/sync', (request,reply) => {
     const { id } = requireUser(request);
-    const { matchId, participantId, movement, target, skill, mounted } = command(request);
+    const { matchId, participantId, movement, target, skill, mounted, manualMove, shortRange } = command(request);
     if (typeof matchId !== 'string' || typeof participantId !== 'string' ||
+        (manualMove !== undefined && typeof manualMove !== 'boolean') ||
+        (shortRange !== undefined && typeof shortRange !== 'boolean') ||
         (mounted !== undefined && typeof mounted !== 'boolean') ||
         (target !== undefined && target !== null && typeof target !== 'string') ||
         (skill !== undefined && skill !== null && (typeof skill !== 'number' || !Number.isSafeInteger(skill) || skill < 0))) {
       return invalid('Mã trận, mục tiêu hoặc mã tham gia không hợp lệ.');
     }
-    const room = roster.sync(id,matchId,participantId,parseBattlefieldMove(movement), (previous, direction, elapsed) => {
-      return current?.fight.moveInput(participantId,direction,elapsed) ?? previous;
+    const room = roster.sync(id,matchId,participantId,parseBattlefieldMove(movement), (previous, direction) => {
+      return current?.fight.moveInput(participantId,direction,manualMove!==false) ?? previous;
     });
     if (!current || matchId !== current.id) return invalid('Trận đấu đã kết thúc.',409);
     if (now !== Date.now) { advance(room.endsAt);settle(); }
     if (!room.finished && typeof mounted==='boolean')current.fight.setMounted(participantId,mounted);
-    if (!room.finished && skill !== undefined) current.fight.selectSkill(participantId,skill as number | null);
+    if (!room.finished) current.fight.selectSkill(participantId,skill as number | null | undefined,shortRange as boolean | undefined);
     if (!room.finished && target !== undefined) current.fight.chooseTarget(participantId,target as string | null);
     return sendJson(reply,200,output(room));
   });

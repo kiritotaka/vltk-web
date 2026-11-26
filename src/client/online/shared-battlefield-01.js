@@ -208,7 +208,7 @@ var sharedBattlefield = (() => {
       if(jump){entity.x=actor.x;entity.y=actor.y;}
       Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,
         fromX:entity.x,fromY:entity.y,receivedAt,blendMs:Math.max(100,Math.min(300,interval*1000||125)),deaths:actor.deaths,
-        dead:false,stun:actor.stun?1:0,sharedSupport:actor.support,mounted:!!actor.mounted});
+        dead:false,r:actor.r||16,stun:actor.stun?1:0,sharedSupport:actor.support,mounted:!!actor.mounted});
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
@@ -473,8 +473,17 @@ var sharedBattlefield = (() => {
     const loot=!x&&!y ? lootTarget(current) : null;
     const aim=loot ? null : target();
     const rally=!aim && !loot && o.ctrl!=="manual" && Math.hypot(v.x-1792,v.y-1792)>80 ? {x:1792,y:1792} : null;
-    const destination=loot || (aim && (Math.hypot(aim.x-v.x,(aim.y-v.y)*2)>Math.max(75,l.P?.main?.rad||75) ||
-      (typeof mt==="function"&&!mt(v.x,v.y,aim.x,aim.y))) && aim) || rally;
+    const attack=current.state.combat.attack || l.P?.main || {rad:75};
+    const closeAttack=!!o.closeAtk && (typeof $1==="function" ? !$1() : o.ctrl!=="manual");
+    const origin=current.position;
+    const targetPosition=aim && {x:aim.remoteX,y:aim.remoteY,r:aim.r};
+    const inRange=targetPosition && (typeof CombatEngine!=="undefined" && CombatEngine.withinSkillCastRange
+      ? CombatEngine.withinSkillCastRange(origin,targetPosition,attack,closeAttack)
+      : Math.hypot(targetPosition.x-origin.x,targetPosition.y-origin.y)<=(attack.rad||75));
+    const ignoresTerrain=typeof skillIgnoresTerrain==="function" && skillIgnoresTerrain(attack);
+    const obstructed=targetPosition && !ignoresTerrain && typeof mt==="function" &&
+      !mt(origin.x,origin.y,targetPosition.x,targetPosition.y);
+    const destination=loot || (targetPosition && (!inRange || obstructed) && targetPosition) || rally;
     const chase=!x&&!y&&destination && follow(current,destination);
     if (chase) {
       const dx=chase.x-v.x,dy=chase.y-v.y,length=Math.hypot(dx,dy)||1;
@@ -489,7 +498,7 @@ var sharedBattlefield = (() => {
     const selected=typeof T!=="undefined" ? T[skill ?? l.P?.main?.id] : null;
     if(aim && !chase && selected && typeof tP==="function")tP({id:selected.id});
     current.mountSent=!!l.mounted;
-    void request('sync',{...current.ref,target:aim?.id||null,skill,mounted:current.mountSent,
+    void request('sync',{...current.ref,target:aim?.id||null,skill,mounted:current.mountSent,manualMove:!!manualMove,shortRange:closeAttack,
       movement:{...current.predictedInput,sequence:++current.sequence}})
       .then(state=>{if(session===current) apply(state);})
       .catch(error=>{

@@ -5,6 +5,13 @@ export const SKILL_RANGE_Y_RATIO = 0.6;
 export const skillCastDistance = (actor: CombatTarget, target: CombatTarget): number =>
   Math.hypot(target.x - actor.x, (target.y - actor.y) / SKILL_RANGE_Y_RATIO) / QA;
 
+/** Same distance, target radius and self-area reach as the field attack loop. */
+export function withinSkillCastRange(actor: CombatTarget, target: CombatTarget, skill: CombatSkill, closeAttack = false): boolean {
+  const reach = skill.geo?.k === 'self' ? skill.geo.r || skill.rad : skill.rad;
+  const effective = closeAttack ? Math.min(reach || 0, 70) : reach || 0;
+  return skillCastDistance(actor, target) - (target.r || 12) / QA <= effective;
+}
+
 /** Bỏ qua địa hình, nhưng vẫn phải đúng tầm và chạm hitbox/vùng đang hoạt động. */
 export const skillIgnoresTerrain = (skill?: CombatSkill | null): boolean => !!skill &&
   (skill.ignoreTerrain === true || [302, 362, 365, 375, 380, 1066, 1070, 1078, 1081].includes(Number(skill.id)));

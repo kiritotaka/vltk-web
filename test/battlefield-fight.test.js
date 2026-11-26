@@ -368,3 +368,35 @@ test('shared cast enforces the outside-map dismount policy before spending mana'
   assert.equal(combat.cast(source,target,()=>[source,target],skill),true);
   assert.equal(source.mana,80);
 });
+
+test('Tống Kim uses the field ellipse, hitbox radius and self-area reach at the boundary',()=>{
+  const {createBattlefieldCombat}=require('../src/server/battlefield-combat.ts');
+  const combat=createBattlefieldCombat(()=>{});
+  const source={x:680,y:2784};
+  const skill={rad:100};
+  assert.equal(combat.inRange(source,{x:776,y:2784,r:16},skill),true);
+  assert.equal(combat.inRange(source,{x:778,y:2784,r:16},skill),false);
+  assert.equal(combat.inRange(source,{x:680,y:2842,r:16},skill),true);
+  assert.equal(combat.inRange(source,{x:680,y:2843,r:16},skill),false);
+  assert.equal(combat.inRange(source,{x:760,y:2784,r:16},skill,true),false);
+  assert.equal(combat.inRange(source,{x:780,y:2784,r:16},{rad:60,geo:{k:'self',r:120}}),true);
+});
+
+test('held movement advances every server tick and expires without a new direction packet',()=>{
+  const {nativeScope:s}=createNativeProfileScope(process.cwd());
+  const fight=createBattlefieldFight();
+  const profile=Object.assign(s.I3(),{fac:'wudang',lvl:100,main:'basic',potOff:true});
+  fight.join('hero','song',profile);
+  const pos=()=>fight.snapshot().players[0].x;
+  const initial=pos();
+  fight.moveInput('hero',{x:1,y:0,sequence:1},true);
+  assert.equal(pos(),initial);
+  fight.tick(1/30);
+  const first=pos();assert.ok(first>initial);
+  fight.tick(1/30);
+  assert.ok(pos()>first);
+  for(let i=0;i<10;i++)fight.tick(1/30);
+  const stopped=pos();
+  fight.tick(1/30);
+  assert.equal(pos(),stopped);
+});

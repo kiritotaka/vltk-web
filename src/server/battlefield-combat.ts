@@ -238,13 +238,20 @@ export function createBattlefieldCombat(
     return damage;
   }
 
-  function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void) {
+  function inRange(source:SharedCombatant,target:SharedCombatant,skill:SimulatorSkill,closeAttack=false) {
+    return globals.CombatEngine.withinSkillCastRange(source,target,skill,closeAttack) as boolean;
+  }
+
+  function canReach(source:SharedCombatant,target:SharedCombatant,skill:SimulatorSkill,closeAttack=false) {
+    return inRange(source,target,skill,closeAttack) &&
+      (native.skillIgnoresTerrain(skill) || sight(source.x,source.y,target.x,target.y));
+  }
+
+  function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void, closeAttack=false) {
     if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || support.fear(source,world.clock) || native.actorActionLocked(source) ||
         target.dead || target.hp <= 0 || source.team === target.team) return false;
     if(!native.E3(globals.T[Number(skill.id)],!!source.mounted))return false;
-    const reach = skill.geo?.k === 'self' ? skill.geo.r || skill.rad : skill.rad;
-    if (native.skillCastDistance(source,target) > reach + (target.r || 12) ||
-        (!native.skillIgnoresTerrain(skill) && !sight(source.x,source.y,target.x,target.y))) return false;
+    if (!canReach(source,target,skill,closeAttack)) return false;
     const cost = skill.cost || 0;
     if (skill.costLife ? source.hp <= cost : source.mana < cost) return false;
     if (skill.costLife) source.hp -= cost;
@@ -272,7 +279,7 @@ export function createBattlefieldCombat(
   return (globals.S.potions || []).filter((potion:SharedPotion)=>level>=(native.be[potion.tier]||999))
     .map((potion:SharedPotion)=>({...potion,key:potion.kind+":"+potion.tier,price:native.Ot(potion)}));
 }
-return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage,
+return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage, inRange, canReach,
   canMount:(actor:SharedCombatant)=>actorContext(actor,()=>!!native.xe()), mountCooldown:native.aP as number,
   resetSupport: support.reset, fear: support.fear,
   supportSpeed(actor:SharedCombatant,time:number){const {id,level}=supportSkill(actor.profile);return support.speed(actor,id,level,time);},
