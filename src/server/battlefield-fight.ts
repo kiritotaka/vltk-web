@@ -44,6 +44,8 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   let time = 0, nextSearch = 0, nextDropCheck=0, lastEffectTick=0,dropId=0;
   const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
   const dirty=new Set<Player>();
+  let visualId=0;
+  const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;melee:boolean;until:number}>=[];
   const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
@@ -241,7 +243,11 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       if (target && !target.dead) {
         const main = player.skillId === 0 ? player.stats.basic : player.stats.actives?.find((entry:SharedCombatant["stats"]["main"])=>entry.id===player.skillId) || player.stats.main;
         const skill = (!main.costLife && player.mana < (main.cost || 0)) ? player.stats.basic : main;
-        cast = combat.cast(player,target,actors,skill);
+        cast = combat.cast(player,target,actors,skill,()=>{
+          if (visuals.length>=192)visuals.shift();
+          visuals.push({id:++visualId,actor:player.id,x:player.x,y:player.y,tx:target.x,ty:target.y,
+            skill:Number(skill.id)||0,melee:skill.melee!==false,until:time+1});
+        });
         if (cast) player.casts++;
       }
       if (!cast && player.kind !== "player" && (!target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
@@ -438,6 +444,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
     return {
       score:{...score},
+      visuals:viewer ? visuals.filter(event=>event.until>time && Math.abs(event.x-viewer.x)<950 && Math.abs(event.y-viewer.y)<650).slice(-32) : [],
       potionSlots:viewer?.kind==="player" ? {life:pharmacyFor(viewer).model.slot("life"),mana:pharmacyFor(viewer).model.slot("mana")} : null,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)

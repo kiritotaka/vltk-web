@@ -157,7 +157,7 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     return resolved.damage as number;
   }
 
-  function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill) {
+  function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void) {
     if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || native.actorActionLocked(source) ||
         target.dead || target.hp <= 0 || source.team === target.team) return false;
     const reach = skill.geo?.k === 'self' ? skill.geo.r || skill.rad : skill.rad;
@@ -174,7 +174,7 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     try {
       globals.SkillCast.castSimulatorSkill(source,target,skill,valid,targets,
         (ability: SimulatorSkill, defender: SharedCombatant) => strike(source,defender,ability),
-        <T>(action: () => T) => actorContext(source,action));
+        <T>(action: () => T) => actorContext(source,action),onRelease);
       return true;
     } catch(error) {
       source.actionRevision++;source.cooldown=Math.max(1,source.cooldown);report(error);return false;

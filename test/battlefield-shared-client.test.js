@@ -14,7 +14,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const enemy={id:'enemy',kind:'player',name:'Other',team:'jin',x:710,y:2784,hp:250,max:250,mana:200,deaths:0,tid:599,faction:'emei',appearance:{sex:1,eq:{}}};
   const snapshot={
     matchId:'shared',player:{id:'own',team:'song',movementSequence:0},teams:{song:{humans:1},jin:{humans:1}},
-    combat:{score:{song:0,jin:0},players:[own,enemy]},
+    combat:{score:{song:0,jin:0},players:[own,enemy],visuals:[{id:1,actor:"enemy",skill:22,melee:true,tx:680,ty:2784}]},
   };
   const s={
     window:{localGameAuth:{user:{role:'user'}},localGameStorage:{pending:0,flush:async()=>{}}},
@@ -37,6 +37,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(s.l.enemies[0].id,'enemy');
   assert.equal(s.l.enemies[0].look.anim,'emei1');
   assert.equal(s.l.enemies[0].sharedAvatar,true);
+  assert.equal(s.l.fx.length,1);
   assert.equal(s.o.ctrl,'auto');
   const renderer={ count:0,update(){ this.count++; return {}; } };
   const view={x:500,y:2400,width:800,height:600};
@@ -49,6 +50,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   s.sharedBattlefield.tick(.1);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(requests[1][1].target,'enemy');
+  assert.equal(s.l.fx.length,1,"Repeated snapshots do not replay the effect");
   assert.equal(requests[1][1].movement.sequence,1);
   s.sharedBattlefield.usePotion('mana');
   await new Promise(resolve=>setImmediate(resolve));

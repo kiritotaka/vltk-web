@@ -198,6 +198,22 @@ var sharedBattlefield = (() => {
       session.crowd=undefined;
       l.enemies=[...entities.values()];
     }
+    const latestVisual=session.visualId||0;
+    for(const event of state.combat.visuals || []){
+      if(event.id<=latestVisual)continue;
+      session.visualId=Math.max(session.visualId||0,event.id);
+      const from=event.actor===me.id?v:entities.get(event.actor)||{x:event.x,y:event.y};
+      const end={x:event.tx,y:event.ty};
+      const before=l.fx.length;
+      if(typeof G3==="function" && !o.lowFx){
+        try { G3(from,end,{id:event.skill,melee:event.melee,parts:{phys:1},nMis:1}); } catch { /* Fall back to a lightweight effect. */ }
+      }
+      if(l.fx.length===before){
+        const color=event.actor===me.id||entities.get(event.actor)?.battlefieldTeam===session.state.player.team?"#ffd06e":"#c77bff";
+        l.fx.push(event.melee ? {k:"ring",x:end.x,y:end.y,color,life:.24,max:.24,r:18} :
+          {k:"line",x1:from.x,y1:from.y-16,x2:end.x,y2:end.y-14,color,life:.23,max:.23});
+      }
+    }
     if (state.finished && !session.finished) {
       session.finished=true;
       ranking();
