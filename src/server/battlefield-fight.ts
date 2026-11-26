@@ -63,6 +63,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
   const dirty=new Set<Player>();
   let visualId=0;
+  const hitLabels: Array<{id:number;source:string;target:string;x:number;y:number;loss:number;element?:string;until:number}>=[];
   const supportVisuals:Array<{id:number;skill:number;x:number;y:number;until:number;actor:string}> = [];
   const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;team:BattlefieldTeam;level:number;missiles:number;rad:number;targets?:number;phys?:boolean;ev2?:boolean;geo:SharedCombatant["stats"]["main"]["geo"];secondary:boolean;element:string;target:string;melee:boolean;until:number}>=[];
   const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
@@ -107,9 +108,13 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     });
   }
 
-  const combat = createBattlefieldCombat((source,target) => {
+  const combat = createBattlefieldCombat((source,target,loss,element) => {
     const attacker = players.get(source.id), defender = players.get(target.id);
     if (!attacker || !defender || attacker.team === defender.team) return;
+    if(loss>0 && (source.kind==="player" || target.kind==="player")) {
+      if(hitLabels.length>=192)hitLabels.shift();
+      hitLabels.push({id:++visualId,source:source.id,target:target.id,x:target.x,y:target.y,loss,element,until:time+1.5});
+    }
     latestHit.set(defender.id,{ player:attacker,time });
     respawn(defender);
   },(skill,actor,point)=>{
@@ -526,6 +531,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     return {
       score:{...score},
       visuals:personal.concat(nearby.slice(-32)),
+      hitLabels:viewer ? hitLabels.filter(hit=>hit.until>time && (hit.source===viewer.id || hit.target===viewer.id)).slice(-48) : [],
       supportVisuals:viewer ? supportVisuals.filter(event=>event.until>time &&
         (event.actor===viewer.id || (Math.abs(event.x-viewer.x)<950 && Math.abs(event.y-viewer.y)<650))).slice(-24) : [],
       potionSlots:viewer?.kind==="player" ? {life:pharmacyFor(viewer).model.slot("life"),mana:pharmacyFor(viewer).model.slot("mana")} : null,

@@ -7,6 +7,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const src=fs.readFileSync('src/client/online/shared-battlefield-01.js','utf8');
   const nodes=new Map(),requests=[],visuals=[];
   let frameFx=0;
+  const hitLabels=[];
   let input=[1,0], timestamp=0, expired=false, resumed=false;
   let dialog='';
   const originalEnemy={id:'original'},originalGround={name:'Old loot',x:100,y:200};
@@ -18,7 +19,8 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const missingLook={...enemy,id:'no-appearance',faction:'unknown',appearance:undefined};
   const snapshot={
     matchId:'shared',player:{id:'own',team:'song',movementSequence:0},teams:{song:{humans:1,sims:99,soldiers:35},jin:{humans:1,sims:99,soldiers:35}},
-    combat:{score:{song:0,jin:0},players:[own,enemy,sim,missingLook],visuals:[{id:1,actor:"enemy",skill:1061,level:10,missiles:3,element:"cold",team:"jin",target:"own",geo:{k:"spot",r:100},secondary:true,melee:true,tx:680,ty:2784}]},
+    combat:{hitLabels:[{id:2,target:"enemy",x:710,y:2784,loss:37,element:"cold"},
+      {id:3,target:"sim",x:710,y:2784,loss:62,element:"phys"}],score:{song:0,jin:0},players:[own,enemy,sim,missingLook],visuals:[{id:1,actor:"enemy",skill:1061,level:10,missiles:3,element:"cold",team:"jin",target:"own",geo:{k:"spot",r:100},secondary:true,melee:true,tx:680,ty:2784}]},
   };
   const s={
     window:{localGameAuth:{user:{role:'user'}},localGameStorage:{pending:0,flush:async()=>{}}},
@@ -34,6 +36,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
       s.l.fx.push({k:"boom"});
     }},
     advanceSkillContacts(){frameFx++;},
+    showDamageNumber(target,amount,element){hitLabels.push([target.id,amount,element]);},
     queueSkillContact(from,to,skill,hit,options){
       visuals.push({from,to,skill,options});
       hit(to);
@@ -96,6 +99,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   own.mounted=false;
   assert.equal(frameFx,1,"Native sprite simulation advances in the shared tick");
   assert.equal(s.l.fx.length,1,"Repeated snapshots do not replay the effect");
+  assert.deepEqual(hitLabels,[["enemy",37,"cold"],["sim",62,"phys"]],"Player and SIM damage each display once");
   assert.equal(requests[1][1].movement.sequence,1);
   s.sharedBattlefield.usePotion('mana');
   await new Promise(resolve=>setImmediate(resolve));

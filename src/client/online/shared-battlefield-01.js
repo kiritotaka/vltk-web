@@ -5,7 +5,7 @@ var sharedBattlefield = (() => {
   let controls = null;
   const entities = new Map();
   const fields = ["clock",'bgImg','zoneShown','town','battlefield','life','mana','deadT','enemies','ground','fx','fxQ','corpses',
-    'combatProjectiles','mounted','rideCd','jx','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
+    'combatProjectiles','mounted','rideCd','jx','txt','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
 
   async function request(action, payload) {
     const response = await fetch('/api/battlefield/shared/' + action, {
@@ -218,6 +218,15 @@ var sharedBattlefield = (() => {
       session.crowd=undefined;
       l.enemies=[...entities.values()];
     }
+    for(const hit of state.combat.hitLabels || []){
+      if(hit.id<=(session.hitLabelId||0))continue;
+      session.hitLabelId=hit.id;
+      if(typeof showDamageNumber==="function"){
+        const target=hit.target===me.id ? v : entities.get(hit.target);
+        const nearby=target&&!target.dead && Math.hypot(target.x-hit.x,target.y-hit.y)<160;
+        showDamageNumber(nearby ? target : {x:hit.x,y:hit.y},hit.loss,hit.element);
+      }
+    }
     const latestVisual=session.visualId||0;
     const fresh=(state.combat.visuals||[]).filter(event=>event.id>latestVisual);
     const personal=event=>event.actor===me.id || event.target===me.id;
@@ -273,7 +282,7 @@ var sharedBattlefield = (() => {
     l.ground=[];
     ma(9003);
     Object.assign(l,{bgImg:bA(MapsEngine.getMapBackground(9003)),zoneShown:9003,town:false,battlefield:true,deadT:0,
-      enemies:[],ground:[],fx:[],fxQ:[],corpses:[],combatProjectiles:[],moveTo:null,manTgt:null,tgt:null,clickedTarget:null,pickTarget:null});
+      enemies:[],ground:[],fx:[],fxQ:[],corpses:[],txt:[],combatProjectiles:[],moveTo:null,manTgt:null,tgt:null,clickedTarget:null,pickTarget:null});
     o.autoMap=false;
     m('#townBar')?.classList.add('hidden');
     installControls();

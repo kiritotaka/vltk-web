@@ -70,7 +70,7 @@ function getCombatScripts() {
 
 /** One native contact world per match. Globals are restored after a cast callback. */
 export function createBattlefieldCombat(
-  onDamage: (source: SharedCombatant, target: SharedCombatant) => void,
+  onDamage: (source: SharedCombatant, target: SharedCombatant, loss: number, element?: string) => void,
   onSupport: (id:number,actor:SharedCombatant,point:{x:number;y:number})=>void = ()=>{},
   random = Math.random,
 ) {
@@ -255,12 +255,13 @@ export function createBattlefieldCombat(
     if (reflected>0) {
       const returned=periodicDamage(source,reflected,time);
       if(returned>0){
+        const reflectedLoss=Math.min(source.hp,returned);
         source.hp=Math.max(0,source.hp-returned);
-        onDamage(target,source);
+        onDamage(target,source,reflectedLoss);
       }
     }
     updateSupport(target,actors);
-    if (loss > 0 || receiver.poison > 0 || procPoison > 0) onDamage(source,target);
+    if (loss > 0 || receiver.poison > 0 || procPoison > 0) onDamage(source,target,loss,skill.elem);
     return damage;
   }
 

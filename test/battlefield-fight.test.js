@@ -21,7 +21,7 @@ test('native shared hit credits the opposing team and respawns the defeated play
   let snapshot;
   for(let tick=0;tick<1200;tick++){
     fight.tick(1/60);
-    snapshot=fight.snapshot();
+    snapshot=fight.snapshot("song");
     if(snapshot.score.song)break;
   }
   const winner=snapshot.players.find(player=>player.id==='song');
@@ -31,6 +31,7 @@ test('native shared hit credits the opposing team and respawns the defeated play
   assert.equal(ally.hp,ally.max);
   assert.equal(snapshot.score.song,150);
   assert.equal(winner.points,150);
+  assert.ok(snapshot.hitLabels.some(hit=>hit.source==="song" && hit.target==="jin" && hit.loss>0));
   assert.equal(loser.deaths,1);
   assert.equal(loser.hp,loser.max);
   assert.deepEqual([loser.x,loser.y],[2904,800]);
