@@ -6,7 +6,7 @@ const {createNativeProfileScope}=require('../tools/sim-balance/native-profile-sc
 test('native shared hit credits the opposing team and respawns the defeated player once',()=>{
   const {nativeScope, nativeGlobals}=createNativeProfileScope(process.cwd());
   const fight=createBattlefieldFight();
-  const player = name => Object.assign(nativeScope.I3(), {fac:'wudang',name,lvl:100,main:'basic',lowFx:true});
+  const player = name => Object.assign(nativeScope.I3(), {fac:'wudang',name,lvl:100,main:'basic',potOff:true,lowFx:true});
   const attacker=player('Tống');
   attacker.attr.str=5000;
   const life=nativeGlobals.S.attr.indexOf('lifemax_v');
@@ -60,7 +60,7 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
   try {
     const blue=await accountCookie(app,'shared_tong'), red=await accountCookie(app,'shared_kim');
     for(const [cookie,name,str] of [[blue,'Tống',5000],[red,'Kim',10]]) {
-      const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name,lvl:100,main:'basic',lowFx:true});
+      const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name,lvl:100,main:'basic',potOff:true,lowFx:true});
       profile.attr.str=str;
       const account=db.prepare("SELECT id,generation FROM accounts WHERE username=?").get(name==='Tống'?'shared_tong':'shared_kim');
       const epoch=db.prepare("SELECT value FROM metadata WHERE key='generation'").get().value;
@@ -116,7 +116,7 @@ test('shared battle AI fills both sides and keeps the 35 NPCs during player repl
   assert.equal(count('jin','sim'),100);
   for(let tick=0;tick<151;tick++)fight.tick(1/30);
   fight.army({song:slots.slice(1),jin:slots});
-  const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name:'Test',lvl:100,main:'basic'});
+  const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name:'Test',lvl:100,main:'basic',potOff:true});
   fight.join('signed-in','song',profile);
   assert.equal(count('song','sim'),99);assert.equal(count('song','player'),1);
   assert.equal(count('song','npc'),35);assert.equal(count('jin','npc'),35);
@@ -138,7 +138,7 @@ test('normal Fastify server runs the shared room with live troop slots',async()=
     const rooms=[];
     for(const [index,cookie] of cookies.entries()) {
       const saved=await send(cookie,'/api/storage');
-      const value=JSON.stringify(Object.assign(nativeScope.I3(),{name:'Live '+index,fac:'wudang',lvl:100,main:'basic'}));
+      const value=JSON.stringify(Object.assign(nativeScope.I3(),{name:'Live '+index,fac:'wudang',lvl:100,main:'basic',potOff:true}));
       const write=await send(cookie,'/api/storage',{generation:saved.json().generation,id:'on-server',operations:[{key:'jxidle',value}]});
       assert.equal(write.statusCode,200,write.body);
       const joined=await send(cookie,'/api/battlefield/shared/join',{team:index?'jin':'song',slot:'jxidle'});
@@ -162,7 +162,7 @@ test('shared NPC loot belongs to its team and one drop can only be collected onc
   const {nativeScope}=createNativeProfileScope(process.cwd());
   const delivered=[];
   const fight=createBattlefieldFight(undefined,(id,kind)=>delivered.push([id,kind]),()=>0);
-  const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name:'Loot test',lvl:100,main:'basic'});
+  const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name:'Loot test',lvl:100,main:'basic',potOff:true});
   profile.attr.str=10_000_000;
   fight.join('looter','song',profile);
   for(let n=0;n<151;n++)fight.tick(1/30);
@@ -192,7 +192,7 @@ test('shared quartermaster prices, supplies and traps use a single durable recei
   const other=await accountCookie(app,'supply_kim');
   const send=(url,data,session=cookie)=>app.inject({url,headers:{cookie:session},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
   const start=(await send('/api/storage')).json();
-  const profile=Object.assign(nativeScope.I3(),{name:'Supply test',fac:'wudang',lvl:100,main:'basic'});
+  const profile=Object.assign(nativeScope.I3(),{name:'Supply test',fac:'wudang',lvl:100,main:'basic',potOff:true});
   profile.mats.misc={tk_merit:3000,tk_life:1,tk_stunTrap:1};
   assert.equal((await send('/api/storage',{generation:start.generation,id:'supply-save',operations:[{key:'jxidle',value:JSON.stringify(profile)}]})).statusCode,200);
   const joined=(await send('/api/battlefield/shared/join',{team:'song',slot:'jxidle'})).json();
@@ -226,7 +226,7 @@ test('shared quartermaster prices, supplies and traps use a single durable recei
 test('server trap only affects an opposing actor and quartermaster rejects distant purchases',()=>{
  const {nativeScope}=createNativeProfileScope(process.cwd());
  const fight=createBattlefieldFight();
- const profile=name=>Object.assign(nativeScope.I3(),{name,fac:'wudang',lvl:100,main:'basic'});
+ const profile=name=>Object.assign(nativeScope.I3(),{name,fac:'wudang',lvl:100,main:'basic',potOff:true});
  const a=profile('A');a.mats.misc={tk_stunTrap:1,tk_merit:20000};
  fight.join('A','song',a);fight.join('enemy','jin',profile('Enemy'));fight.join('ally','song',profile('Ally'));
  fight.move('A',690,2784);
@@ -240,4 +240,59 @@ test('server trap only affects an opposing actor and quartermaster rejects dista
  assert.equal(snapshot.players.find(actor=>actor.id==='ally').stun,false);
  fight.move('A',1200,2200);
  assert.throws(()=>fight.supply('A','buy','resistance',1,()=>assert.fail('purchase should not settle')),/Quan Quân Nhu/);
+});
+
+test('shared pharmacy buys and consumes potions once and persists only the gold debit',async()=>{
+ const {createServer}=require('../src/server/index.ts');
+ const {openDatabase}=require('../src/server/database.ts');
+ const {accountCookie}=require('./helpers/accounts.js');
+ const {nativeScope}=createNativeProfileScope(process.cwd());
+ const db=openDatabase(':memory:');const {app}=createServer({db,downloadAssets:false});
+ try {
+  const cookie=await accountCookie(app,'pharmacy_tong');
+  const other=await accountCookie(app,'pharmacy_kim');
+  const send=(url,data,session=cookie)=>app.inject({url,headers:{cookie:session},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
+  const initial=(await send('/api/storage')).json();
+  const profile=Object.assign(nativeScope.I3(),{name:'Potion test',fac:'wudang',lvl:100,main:'basic',potOff:true,gold:800});
+  profile.mats.misc={tk_life:1};
+  assert.equal((await send('/api/storage',{generation:initial.generation,id:'pharmacy-save',operations:[{key:'jxidle',value:JSON.stringify(profile)}]})).statusCode,200);
+  const joined=(await send('/api/battlefield/shared/join',{team:'song',slot:'jxidle'})).json();
+  const ref={matchId:joined.matchId,participantId:joined.player.id};
+  const pharmacy=(data,session)=>send('/api/battlefield/shared/pharmacy',{...ref,...data},session);
+  const gold=async()=>JSON.parse((await send('/api/storage')).json().entries.jxidle).gold;
+  const buy={action:'buy',key:'life:1',quantity:1,requestId:'buy-hp'};
+  assert.equal((await pharmacy({},other)).statusCode,409);
+  assert.equal((await pharmacy({})).json().total,60);
+  assert.equal((await pharmacy(buy)).statusCode,409);
+  const pill=await send('/api/battlefield/shared/supplies',{...ref,action:'use',kind:'life',quantity:1,requestId:'life-pill'});
+  assert.equal(pill.statusCode,200,pill.body);
+  const use={action:'use',resource:'life',requestId:'drink-hp'};
+  const used=await pharmacy(use);
+  assert.equal(used.statusCode,200,used.body);
+  assert.equal(used.json().life,29);
+  assert.equal((await pharmacy(use)).json().life,29);
+  assert.equal((await pharmacy({...use,requestId:'drink-at-full-hp'})).statusCode,409);
+  const healed=(await send('/api/battlefield/shared/sync',ref)).json().combat.players.find(actor=>actor.id===ref.participantId);
+  assert.equal(healed.hp,healed.max);
+  assert.equal((await send("/api/battlefield/shared/leave",ref)).statusCode,200);
+  const rejoined=(await send("/api/battlefield/shared/join",{team:"song",slot:"jxidle"})).json();
+  assert.equal(rejoined.matchId,ref.matchId);
+  ref.participantId=rejoined.player.id;
+  assert.equal((await pharmacy({})).json().total,59);
+  const savedBefore=(await send('/api/storage')).json();
+  db.exec("CREATE TEMP TRIGGER fail_pharmacy BEFORE INSERT ON battlefield_supply_receipts BEGIN SELECT RAISE(ABORT,'forced rollback'); END");
+  assert.equal((await pharmacy(buy)).statusCode,409);
+  assert.equal(await gold(),800);
+  assert.equal((await send('/api/storage')).json().generation,savedBefore.generation);
+  assert.equal((await pharmacy({})).json().total,59);
+  db.exec('DROP TRIGGER fail_pharmacy');
+  assert.equal((await pharmacy(buy)).json().total,60);
+  assert.equal((await pharmacy(buy)).json().total,60);
+  assert.equal((await pharmacy({...buy,quantity:2})).statusCode,409);
+  assert.equal(await gold(),795);
+  assert.equal((await pharmacy({action:'select',resource:'life',key:'life:1'})).json().selected.life,'life:1');
+  assert.equal((await pharmacy({action:'select',resource:'mana',key:'life:1'})).statusCode,409);
+  const updates=await send('/api/market/character-updates?generation='+encodeURIComponent(savedBefore.generation));
+  assert.deepEqual(updates.json().changes,[{slot:'jxidle',unit:'gold',delta:-5}]);
+ } finally { await app.close();db.close(); }
 });

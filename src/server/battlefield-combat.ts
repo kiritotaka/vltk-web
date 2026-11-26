@@ -13,6 +13,16 @@ import type { BattlefieldTeam } from './battlefield-roster.ts';
 const require = createRequire(import.meta.url);
 const { compileTypeScriptEntry } = require('../../tools/build-app.js') as typeof import('../../tools/build-app.js');
 
+export type PotionResource = "life" | "mana";
+export interface SharedPotion { key:string; kind:PotionResource|"both"; tier:number; n:string; ic?:string; total:number; mtotal?:number; price:number }
+export interface SharedPharmacy {
+  reset(initial:boolean):void; buy(key:string,quantity:number):void; refill():void;
+  use(resource:PotionResource):boolean; select(resource:PotionResource,key:string):void;
+  catalog():SharedPotion[];
+  slot(resource:PotionResource):{ic:string;n:number;name:string};
+  readonly state:{life:number;mana:number;total:number;capacity:number;nearCamp:boolean;selected:Record<PotionResource,string>;inventory:Record<string,number>};
+}
+
 export interface SharedCombatant {
   id: string;
   kind: "player" | "sim" | "npc" | "marshal";
@@ -49,6 +59,7 @@ function getCombatScripts() {
     ['simulator/reflection.ts', 'BattlefieldReflection'],
     ['simulator/war-rewards.ts', 'WarItemRules'],
     ['gameplay/quartermaster/model.ts', 'QuartermasterRules'],
+    ['simulator/supplies.ts', 'PharmacyRules'],
   ].map(([file,name])=>new vm.Script(compileTypeScriptEntry(file,name).code,{filename:file})).concat(
     new vm.Script(fs.readFileSync(path.join(ROOT,'src/client/combat/legacy-bridge.js'),'utf8'),{filename:'combat/legacy-bridge.js'}),
   );
@@ -101,6 +112,11 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     }
   }
 
+  let reportedAt=-Infinity;
+  function report(error:unknown){
+    if(world.clock-reportedAt<5)return;
+    reportedAt=world.clock;console.error("Lỗi đòn đánh Tống Kim",error);
+  }
   function strike(source: SharedCombatant, target: SharedCombatant, skill: SimulatorSkill) {
     const receiver = { ...target, hurtProxy:true, poison: 0, poisonDmg: 0, stun: 0, slowT: 0, slowPower: 0 };
     const fighter = (actor:SharedCombatant) => actor.kind === "player" || actor.kind === "sim";
@@ -155,17 +171,29 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     const revision = source.actionRevision;
     const valid = () => !source.dead && source.hp > 0 && source.actionRevision === revision;
     const targets = () => actors().filter(candidate => candidate.team !== source.team && !candidate.dead && candidate.hp > 0);
-    globals.SkillCast.castSimulatorSkill(source,target,skill,valid,targets,
-      (ability: SimulatorSkill, defender: SharedCombatant) => strike(source,defender,ability),
-      <T>(action: () => T) => actorContext(source,action));
-    return true;
+    try {
+      globals.SkillCast.castSimulatorSkill(source,target,skill,valid,targets,
+        (ability: SimulatorSkill, defender: SharedCombatant) => strike(source,defender,ability),
+        <T>(action: () => T) => actorContext(source,action));
+      return true;
+    } catch(error) {
+      source.actionRevision++;source.cooldown=Math.max(1,source.cooldown);report(error);return false;
+    }
   }
 
   function advance(dt: number) {
     world.clock += dt;
-    globals.CombatEngine.advanceSkillContacts(dt);
+    try { globals.CombatEngine.advanceSkillContacts(dt); }
+    catch(error){world.combatProjectiles=[];world.fx=[];world.fxQ=[];report(error);}
   }
-  return { statsFor, computerProfile, cast, advance,
+  function potionCatalog(level:number):SharedPotion[]{
+  return (globals.S.potions || []).filter((potion:SharedPotion)=>level>=(native.be[potion.tier]||999))
+    .map((potion:SharedPotion)=>({...potion,key:potion.kind+":"+potion.tier,price:native.Ot(potion)}));
+}
+return { statsFor, computerProfile, cast, advance, potionCatalog,
+  potionCooldown:native.ao as number,
+  createPharmacy:globals.PharmacyRules.createWarSupplies as (host:Record<string,unknown>)=>SharedPharmacy,
+  recover:globals.CombatEngine.applyPotionRecovery as (state:{life:number;mana:number;P:{life:number;mana:number}},resource:PotionResource,potion:SharedPotion)=>void,
     createWarRewards: globals.WarItemRules.createWarRewards as (host:Record<string,unknown>)=>{use(kind:string):void; apply(stats:SimulatorStats,actor:SharedCombatant):void; tick(dt:number):void; readonly traps:Array<{kind:string;x:number;y:number}>},
     createQuartermaster: globals.QuartermasterRules.createQuartermaster as (host:Record<string,unknown>)=>{quote(kind:string,quantity:number):{before:number;cost:number};buy(kind:string,quantity:number):void},
     prices: globals.QuartermasterRules.WAR_PRICES as Record<string,number>,

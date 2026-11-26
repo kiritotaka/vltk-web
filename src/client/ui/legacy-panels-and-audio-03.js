@@ -656,6 +656,7 @@ var Ac = function (A) {
 };
 
 var Ms = function (A) {
+  if (typeof sharedBattlefield !== "undefined" && sharedBattlefield.active) return sharedBattlefield.usePotion(A);
   if (((l.potCd = l.potCd || { life: 0, mana: 0 }), l.potCd[A] > 0)) return;
   const n = ic(A === "mana" ? 1 : 0);
   if (!n) {

@@ -310,7 +310,8 @@ var equipmentTrader = (function () {
         else if (typeof quartermaster !== "undefined" && quartermaster) quartermaster.open();
       },
       pharmacy: () => {
-        if (battle) arenaSimulator.openPharmacy();
+        if (typeof sharedBattlefield !== "undefined" && sharedBattlefield.active) void sharedBattlefield.openPharmacy();
+        else if (battle) arenaSimulator.openPharmacy();
         else { Nt = 'med'; lh(); }
       },
       horse: () => { if (typeof horseTrader !== 'undefined' && horseTrader) horseTrader.open(); },

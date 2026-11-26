@@ -72,6 +72,59 @@ var sharedBattlefield = (() => {
       if(status)status.textContent=error.message;
     } finally { current.supplying=false; }
   }
+  async function openPharmacy() {
+    const current=session;
+    if(!current || current.finished)return;
+    try {
+      const store=await request("pharmacy",current.ref);
+      if(session!==current||!store)return;
+      const rows=store.items;
+      J("<h3>Dược Điếm · Tống Kim</h3><p>Túi thuốc "+store.total+"/"+store.capacity+" bình</p>"+
+        "<div class=\"btnrow\"><button class=\"btn sm\" id=\"war-pharmacy-refill\">Bổ sung đủ thuốc</button>"+
+        "<button class=\"btn sm\" id=\"war-pharmacy-life\">Dùng HP · "+store.life+"</button>"+
+        "<button class=\"btn sm\" id=\"war-pharmacy-mana\">Dùng MP · "+store.mana+"</button></div>"+
+        "<div class=\"row\">"+["life","mana"].map(resource=>"<label>"+(resource==="life"?"Thuốc HP":"Thuốc MP")+
+          " <select id=\"war-pharmacy-"+resource+"-select\"><option value=\"auto\">Tự động</option>"+
+          rows.filter(item=>item.kind===resource||item.kind==="both").map(item=>
+            "<option value=\""+D(item.key)+"\""+(store.selected[resource]===item.key?" selected":"")+">"+D(item.n)+"</option>").join("")+
+          "</select></label>").join("")+"</div><div class=\"shoplist\">"+rows.map(item=>
+          "<div class=\"row\"><b>"+D(item.n)+"</b><span>"+item.count+" bình · "+item.price+" lượng</span>"+
+          "<button class=\"btn sm\" data-war-potion=\""+D(item.key)+"\" data-quantity=\"1\">Mua</button>"+
+          "<button class=\"btn sm\" data-war-potion=\""+D(item.key)+"\" data-quantity=\"10\">×10</button></div>").join("")+
+        "</div><p id=\"war-pharmacy-status\" role=\"status\"></p>",()=>{
+          m("#war-pharmacy-refill").onclick=()=>void pharmacyCommand({action:"refill"},true);
+          for(const resource of ["life","mana"]){
+            m("#war-pharmacy-"+resource).onclick=()=>void pharmacyCommand({action:"use",resource},true);
+            m("#war-pharmacy-"+resource+"-select").onchange=event=>void pharmacyCommand({action:"select",resource,key:event.target.value},true);
+          }
+          m("#mBody")?.querySelectorAll("[data-war-potion]").forEach(button=>{
+            button.onclick=()=>void pharmacyCommand({action:"buy",key:button.dataset.warPotion,quantity:Number(button.dataset.quantity)},true);
+          });
+        });
+    } catch(error) { k(error.message); }
+  }
+  async function pharmacyCommand(command,show=false) {
+    const current=session;
+    if(!current||current.finished||current.pharmacyBusy)return;
+    const signature=JSON.stringify(command);
+    if(current.pendingPharmacy && current.pendingPharmacy.signature!==signature){
+      k("Hãy thử lại thao tác Dược Điếm trước để xác nhận kết quả.");
+      return;
+    }
+    if(command.action!=="select")current.pendingPharmacy??={signature,requestId:crypto.randomUUID()};
+    current.pharmacyBusy=true;
+    try {
+      await request("pharmacy",{...current.ref,...command,requestId:current.pendingPharmacy?.requestId});
+      current.pendingPharmacy=null;
+      if(show && session===current)await openPharmacy();
+    } catch(error){
+      if(error.status>=400&&error.status<500)current.pendingPharmacy=null;
+      const status=show&&m("#war-pharmacy-status");
+      if(status)status.textContent=error.message;else k(error.message);
+    } finally {current.pharmacyBusy=false;}
+  }
+  function usePotion(resource){void pharmacyCommand({action:"use",resource});}
+  function potionSlot(resource){return session?.state.combat.potionSlots?.[resource]||{ic:"",n:0,name:"Túi thuốc Tống Kim"};}
   function installControls() {
     controls = document.createElement('div');
     controls.style.cssText='position:fixed;bottom:clamp(90px,17vh,140px);right:12px;z-index:20;display:flex;gap:6px';
@@ -89,7 +142,10 @@ var sharedBattlefield = (() => {
 
   function apply(state) {
     if (!session) return;
+    const previousSlots=session.state.combat.potionSlots;
     session.state = state;
+    const changed=(key)=>previousSlots?.[key]?.n!==state.combat.potionSlots?.[key]?.n || previousSlots?.[key]?.name!==state.combat.potionSlots?.[key]?.name;
+    if((changed("life")||changed("mana"))&&typeof qA==="function")qA();
     const timer=m('#shared-war-timer');
     if (timer && Number.isFinite(state.endsAt-state.serverTime)) {
       const seconds=Math.max(0,Math.ceil((state.endsAt-state.serverTime)/1000));
@@ -119,6 +175,14 @@ var sharedBattlefield = (() => {
         entity={ id:actor.id, n:actor.name, tid, x:actor.x, y:actor.y, hp:actor.hp, max:actor.max,
           series:0, cls:actor.kind==='marshal'?'boss':'normal', sz:1, face:1, act:'st', actT:0, r:16,
           battlefieldTeam:actor.team, battlefieldMonster:true, sharedActor:true };
+        if(actor.kind==="player"&&actor.appearance&&typeof Jt==="function"){
+          const look=Jt(actor.faction,actor.appearance.sex);
+          if(look){
+            entity.sharedAvatar=true;entity.look=look;entity.localTeam=session.state.player.team;
+            entity.profile={fac:actor.faction,sex:actor.appearance.sex,eq:Object.fromEntries(Object.entries(actor.appearance.eq).map(([slot,item])=>[slot,{...item,base:[],req:[],mag:[]}])),attr:{},sk:{}};
+            entity.stats={...l.P,mana:Math.max(0,actor.mana)};entity.mana=actor.mana;
+          }
+        }
         entities.set(actor.id,entity);
         changedActors=true;
       }
@@ -148,10 +212,11 @@ var sharedBattlefield = (() => {
     ma(9003);
     Object.assign(l,{bgImg:bA(MapsEngine.getMapBackground(9003)),zoneShown:9003,town:false,battlefield:true,deadT:0,
       enemies:[],ground:[],fx:[],fxQ:[],corpses:[],combatProjectiles:[],moveTo:null,manTgt:null,tgt:null,clickedTarget:null,pickTarget:null});
-    o.ctrl='manual';o.autoMap=false;
+    o.autoMap=false;
     m('#townBar')?.classList.add('hidden');
     installControls();
     apply(state);
+    if(typeof qA==="function")qA();
   }
 
   async function exit(remote=true) {
@@ -165,6 +230,7 @@ var sharedBattlefield = (() => {
     Object.assign(l,current.previous.world);
     Object.assign(v,current.previous.hero);
     o.ctrl=current.previous.ctrl;o.autoMap=current.previous.autoMap;
+    if(typeof qA==="function")qA();
     m('#townBar')?.classList.toggle('hidden',!l.town);
     Y.target=null;
     if (remote) await request('leave',current.ref).catch(()=>{});
@@ -246,13 +312,31 @@ var sharedBattlefield = (() => {
     else if(now-prior.at>=3000){current.skipLoot={id:match.id,until:now+12000};current.lootProgress=null;return null;}
     return match;
   }
+  function follow(current,destination) {
+    if(typeof mt!=="function" || mt(v.x,v.y,destination.x,destination.y)){current.route=null;return destination;}
+    if(typeof Bw!=="function")return destination;
+    const now=performance.now(),old=current.route;
+    if(!old||now>=old.retryAt||Math.hypot(old.x-destination.x,old.y-destination.y)>90){
+      current.route={x:destination.x,y:destination.y,retryAt:now+750,points:Bw(v.x,v.y,destination.x,destination.y,2400)||[]};
+    }
+    const points=current.route.points;
+    while(points.length&&Math.hypot(points[0].x-v.x,points[0].y-v.y)<16)points.shift();
+    return points[0]||null;
+  }
   function tick(dt) {
     const current=session;
     if (!current?.position) return;
     l.clock=(l.clock||0)+dt;
     const mix=Math.min(1,dt*12);
-    v.x+=(current.position.x-v.x)*mix;
-    v.y+=(current.position.y-v.y)*mix;
+    const [inputX,inputY]=Qv();
+    const manualMove = inputX || inputY;
+    if(manualMove && typeof gt==="function" && Math.hypot(current.position.x-v.x,current.position.y-v.y)<22){
+      const speed=typeof Ra==="function"?Ra():1;
+      gt(v,v.x+inputX*150*speed*dt,v.y+inputY*150*speed*dt);
+    } else {
+      v.x+=(current.position.x-v.x)*mix;
+      v.y+=(current.position.y-v.y)*mix;
+    }
     const scene = typeof B0!=="undefined" ? B0 : null;
     const viewWidth = scene ? worldViewWidth() : 0;
     const viewHeight = scene ? worldViewHeight() : 0;
@@ -267,17 +351,22 @@ var sharedBattlefield = (() => {
       if(actor.moving) { actor.face=x<0?-1:1;actor.dir=kn(x,y); }
       actor.x+=x*mix;actor.y+=y*mix;
     }
-    if(current.finished || current.sending || performance.now()<current.nextSync) return;
-    let [x,y]=Qv();
+    const now=performance.now();
+    if(current.finished || current.sending || (now<current.nextSync && !(manualMove&&!current.wasMoving&&now-(current.lastSync||0)>75))) return;
+    let [x,y]=[inputX,inputY];
     const loot=!x&&!y ? lootTarget(current) : null;
     const aim=loot ? null : target();
-    const chase=loot || (aim && Math.hypot(aim.x-v.x,(aim.y-v.y)*2)>Math.max(75,l.P?.main?.rad||75) && aim);
-    if (!x&&!y&&chase) {
+    const rally=!aim && !loot && o.ctrl!=="manual" && Math.hypot(v.x-1792,v.y-1792)>80 ? {x:1792,y:1792} : null;
+    const destination=loot || (aim && (Math.hypot(aim.x-v.x,(aim.y-v.y)*2)>Math.max(75,l.P?.main?.rad||75) ||
+      (typeof mt==="function"&&!mt(v.x,v.y,aim.x,aim.y))) && aim) || rally;
+    const chase=!x&&!y&&destination && follow(current,destination);
+    if (chase) {
       const dx=chase.x-v.x,dy=chase.y-v.y,length=Math.hypot(dx,dy)||1;
       x=dx/length;y=dy/length;
     }
     const scale=Math.max(1,Math.hypot(x,y));
-    current.nextSync=performance.now()+(x||y||aim?180:350);
+    current.lastSync=now;current.wasMoving=!!manualMove;
+    current.nextSync=now+(x||y||aim?125:300);
     current.sending=true;
     const skill=o.mainLock ? (o.main==='basic'?0:Number(o.main)||null) : null;
     void request('sync',{...current.ref,target:aim?.id||null,skill,
@@ -307,5 +396,5 @@ var sharedBattlefield = (() => {
   document.addEventListener('keydown',event=>{
     if(session && event.key==='Escape' && m('#modal')?.classList.contains('hidden')) { event.stopImmediatePropagation();ranking(); }
   },true);
-  return {open,tick,crowdFrame,drawLoot,openSupplies,get active(){return !!session;},get team(){return session?.state.player.team;}};
+  return {open,tick,crowdFrame,drawLoot,openSupplies,openPharmacy,usePotion,potionSlot,get active(){return !!session;},get team(){return session?.state.player.team;}};
 })();

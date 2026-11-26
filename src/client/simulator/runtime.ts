@@ -705,7 +705,7 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
       // Composite sprites read the current profile/world. Give each SIM its own equipment.
       l.look = actor.battlefieldBoss || typeof yf !== 'function' ? null : yf();
       l.jx = !actor.battlefieldBoss && typeof J3 === 'function' && J3() && typeof N8 === 'function' ? N8() : null;
-      if (actor.battlefieldTeam && !actor.battlefieldBoss && l.jx && typeof P0 !== 'undefined' && P0) {
+      if (actor.battlefieldTeam && !actor.battlefieldBoss && !actor.sharedAvatar && l.jx && typeof P0 !== 'undefined' && P0) {
         const key = `${l.jx.sx}:${l.jx.ride}:${l.jx.rows.weapon}`;
         const wardrobe = actor.wardrobe ||= {};
         const clothes = wardrobe[key] ||= randomSimulatorClothes(P0.tabs[l.jx.sx] || {}, l.jx.asc, l.jx.sx);
@@ -719,11 +719,11 @@ export function createSimulator(options: { optimize?: (profile: SimulatorProfile
     }
     if (actor.curse && typeof WP === "function") WP(context, actor, Jn);
     if (actor.stFx && typeof ZP === "function") ZP(context, actor, height ? Math.min(height, 110) : 50, Jn, dt);
-    const earned = battlefield?.active ? warRewards.rank(actor) : null;
+    const earned = !actor.sharedAvatar && battlefield?.active ? warRewards.rank(actor) : null;
     const actorName = actor.n;
     const title=actor.battlefieldBoss?'<Nguyên soái>':earned?`<${earned.name}>`:'';
     const color = actor.battlefieldTeam === 'song' ? '#ffcc00' : actor.battlefieldTeam === 'jin' ? '#c77bff' : '#6ee7e0';
-    L3(actor.x, actor.y - nameplateOffset(look?.anim, Jn, 1, 0, 55), actorName, color, 12, actor.hp / actor.max, actor.battlefieldTeam && battlefield?.active ? battlefieldHealthColor(actor.battlefieldTeam, battlefield.team) : color, title, battlefieldTitleColor(actor.battlefieldBoss ? 'Nguyên soái' : earned?.name || 'Binh sĩ'));
+    L3(actor.x, actor.y - nameplateOffset(look?.anim, Jn, 1, 0, 55), actorName, color, 12, actor.hp / actor.max, actor.battlefieldTeam && (actor.sharedAvatar || battlefield?.active) ? battlefieldHealthColor(actor.battlefieldTeam, actor.localTeam || battlefield!.team) : color, title, battlefieldTitleColor(actor.battlefieldBoss ? 'Nguyên soái' : earned?.name || 'Binh sĩ'));
   }
   function text(simOnly = false) { return JSON.stringify({ format: "arena-damage-v1", exportedAt: new Date().toISOString(), oneDamage: sandbox.oneDamage,
     simulators: actors.map(actor => ({ id: actor.simId, name: actor.n, faction: actor.profile.fac, skill: actor.profile.main, attr: actor.profile.attr, skills: actor.profile.sk, pk: actor.pk, farm: actor.farm })),

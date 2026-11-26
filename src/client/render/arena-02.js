@@ -114,7 +114,7 @@ var NP = function (A) {
       .map((label) => label.target));
   // Animation clocks still advance for hidden bodies. Simulation never uses
   // the representative set; only sprite/nameplate drawing is reduced.
-  for (const a of living) if (!a.arenaSim && (!shared || crowd.bodies.has(a))) {
+  for (const a of living) if (!a.arenaSim && !a.sharedAvatar && (!shared || crowd.bodies.has(a))) {
     a.animKey = r0[a.tid].anim;
     H8(a, a.stun > 0 ? 0 : A, a.moving ? "run" : "st");
     if (a.act !== "at" && a.act !== "hurt" && a.act !== "die")
@@ -140,7 +140,7 @@ var NP = function (A) {
       equipmentTrader.draw(n, a);
       continue;
     }
-    if (a.arenaSim && typeof arenaSimulator !== "undefined" && arenaSimulator) {
+    if ((a.arenaSim || a.sharedAvatar) && typeof arenaSimulator !== "undefined" && arenaSimulator) {
       arenaSimulator.draw(n, a, A);
       continue;
     }

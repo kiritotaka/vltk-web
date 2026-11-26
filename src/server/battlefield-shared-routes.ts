@@ -86,6 +86,7 @@ export function registerSharedBattlefield(
   }
 
   if (now === Date.now) {
+    let lastFault=-Infinity;
     const timer=setInterval(()=>{
       if (!current || current.time >= current.endsAt-1) return;
       try {
@@ -99,9 +100,9 @@ export function registerSharedBattlefield(
           if (room) arrange(room);
         }
       } catch (error) {
-        console.error("Tống Kim",error);
-        roster.reset();
-        current=undefined;
+        if(now()-lastFault>=5000){lastFault=now();console.error("Tống Kim",error);}
+        // Keep the roster on isolated failures and resume from the next tick.
+        if(current)current.time=Math.min(now(),current.endsAt);
       }
     },1000/30);
     timer.unref();
@@ -133,7 +134,7 @@ export function registerSharedBattlefield(
         settle();recipients.clear();
         current = { id:room.matchId, fight:createBattlefieldFight(earn,collect), time:now(), endsAt:room.endsAt, rosterKey:"", armyAt:0 };
       }
-      current.fight.join(room.player.id,team,character);
+      current.fight.join(room.player.id,team,character,id+":"+slot);
       if(!recipients.has(room.player.id)) recipients.set(room.player.id,{accountId:id,slot:slot as CharacterSlot,pending:0,goods:{}});
     } catch (error) {
       roster.leave(id,room.matchId,room.player.id);
@@ -189,6 +190,40 @@ export function registerSharedBattlefield(
       });
     } catch(error) {return invalid(error instanceof Error?error.message:"Không xử lý được vật phẩm.",409);}
     return sendJson(reply,200,current.fight.supplies(participantId));
+  });
+
+  app.post("/api/battlefield/shared/pharmacy", (request,reply)=>{
+    const {id}=requireUser(request);
+    const {matchId,participantId,action,key,quantity,resource,requestId}=command(request);
+    if(typeof matchId!=="string"||typeof participantId!=="string")return invalid("Mã trận không hợp lệ.");
+    const room=roster.sync(id,matchId,participantId);
+    if(!current||current.id!==matchId||room.finished)return invalid("Trận đấu đã kết thúc.",409);
+    if (action===undefined)return sendJson(reply,200,current.fight.pharmacy(participantId));
+    if (action!=="buy"&&action!=="refill"&&action!=="use"&&action!=="select")return invalid("Thao tác Dược Điếm không hợp lệ.");
+    if ((action==="buy"||action==="select") && (typeof key!=="string"||key.length>32))return invalid("Loại thuốc không hợp lệ.");
+    if (action==="buy" && (typeof quantity!=="number"||!Number.isSafeInteger(quantity)||quantity<1||quantity>60))return invalid("Số lượng thuốc không hợp lệ.");
+    if ((action==="use"||action==="select") && resource!=="life"&&resource!=="mana")return invalid("Ô thuốc không hợp lệ.");
+    if (action!=="select" && (typeof requestId!=="string"||!/^[a-zA-Z0-9-]{1,80}$/.test(requestId)))return invalid("Mã yêu cầu không hợp lệ.");
+    const receiver=recipients.get(participantId);
+    if(!receiver||receiver.accountId!==id)return invalid("Suất tham gia đã hết hiệu lực.",409);
+    const signature=JSON.stringify(["pharmacy",matchId,participantId,action,key,quantity,resource]);
+    const previous=typeof requestId==="string" ? supplyReceipt.get(id,requestId) : undefined;
+    if(previous){
+      if(previous.signature!==signature)return invalid("Mã yêu cầu đã được sử dụng.",409);
+      return sendJson(reply,200,current.fight.pharmacy(participantId));
+    }
+    try {
+      current.fight.pharmacyAction(participantId,action,typeof key==="string"?key:"",typeof quantity==="number"?quantity:0,resource==="mana"?"mana":"life",cost=>{
+        if(typeof requestId!=="string")return invalid("Mã yêu cầu không hợp lệ.");
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          if(cost>0)inventory.changeBalance(id,receiver.slot,"gold",-cost);
+          saveReceipt.run(id,requestId,signature);
+          db.exec("COMMIT");
+        } catch(error){db.exec("ROLLBACK");throw error;}
+      });
+    }catch(error){return invalid(error instanceof Error?error.message:"Không xử lý được thuốc.",409);}
+    return sendJson(reply,200,current.fight.pharmacy(participantId));
   });
 
   app.post('/api/battlefield/shared/leave', (request,reply) => {

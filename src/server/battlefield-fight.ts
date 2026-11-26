@@ -1,5 +1,5 @@
 ﻿import { createBattlefieldCombat } from './battlefield-combat.ts';
-import type { SharedCombatant } from './battlefield-combat.ts';
+import type { SharedCombatant, SharedPharmacy, SharedPotion, PotionResource } from './battlefield-combat.ts';
 import { readFileSync } from 'node:fs';
 import { advanceBattlefieldPosition, battlefieldSpawn } from './battlefield-movement.ts';
 import type { BattlefieldMove } from "./battlefield-movement.ts";
@@ -27,6 +27,7 @@ const factions = ["shaolin","tianwang","tangmen","wudu","emei","cuiyan","gaibang
 
 interface Player extends SharedCombatant {
   deaths: number;
+  pharmacyKey?:string;
   points: number;
   requestedTarget: string | null;
   skillId: number | null;
@@ -43,6 +44,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   let time = 0, nextSearch = 0, nextDropCheck=0, lastEffectTick=0,dropId=0;
   const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
   const dirty=new Set<Player>();
+  const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
 
@@ -90,12 +92,13 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     respawn(defender);
   });
 
-  function join(id:string, team:BattlefieldTeam, profile:SimulatorProfile) {
+  function join(id:string, team:BattlefieldTeam, profile:SimulatorProfile, pharmacyKey=id) {
     if (players.has(id)) return;
     const stats = combat.statsFor(profile);
     if (!(Number.isFinite(stats.life) && stats.life > 0 && Number.isFinite(stats.mana) && stats.mana >= 0 &&
       Number.isFinite(stats.main.rad) && stats.main.rad > 0)) throw new Error('Chỉ số nhân vật không hợp lệ.');
     add(id,team,profile,stats,"player",battlefieldSpawn(team),killPoints,0);
+    players.get(id)!.pharmacyKey=pharmacyKey;
   }
 
   function add(id:string,team:BattlefieldTeam,profile:SimulatorProfile,stats:SharedCombatant["stats"],kind:Player["kind"],home:Point,reward:number,tid:number) {
@@ -246,6 +249,13 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     combat.advance(dt);
     if(time>=nextDropCheck){
       collectNearby();
+      for(const player of players.values()){
+        if(player.kind!=="player"||player.hp<=0||player.profile.potOff)continue;
+        const threshold=(field:string)=>Math.max(.05,Math.min(.95,(Number(player.profile[field] ?? 50) || 0)/100));
+        if(player.hp<player.max*threshold("potHp"))pharmacyFor(player).model.use("life");
+        const main=player.stats.main;
+        if(player.mana<player.stats.mana*threshold("potMp")||(!main.costLife&&player.mana<(main.cost||0)*2))pharmacyFor(player).model.use("mana");
+      }
       const effectStep=time-lastEffectTick;lastEffectTick=time;
       for(const [id,effect] of effects){
         effect.rules.tick(effectStep);
@@ -335,6 +345,58 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     for(const actor of remaining)dirty.add(actor);
     recalculate();
   }
+  function pharmacyFor(player:Player) {
+    const key=player.pharmacyKey || player.id;
+    const existing=pharmacies.get(key);
+    if(existing){
+      if(existing.player.profile.lvl!==player.profile.lvl)existing.catalog=combat.potionCatalog(player.profile.lvl);
+      existing.player=player;return existing;
+    }
+    const ready={life:0,mana:0};
+    const catalog=combat.potionCatalog(player.profile.lvl);
+    const model=combat.createPharmacy({
+      running:()=>true,alive:()=>entry.player.hp>0,team:()=>entry.player.team,position:()=>entry.player,
+      pharmacyPositions:()=>authoredMap.npcs.filter(npc=>npc.npcId==="pharmacy"&&(!npc.team||npc.team===entry.player.team)).map(npc=>npc.position),
+      catalog:()=>entry.catalog,changed(){},
+      pay(cost:number){if(!entry.commit)return false;entry.commit(cost);return true;},
+      recover(resource:PotionResource,potion:SharedPotion){
+        const player=entry.player;
+        const both=potion.kind==="both";
+        if (entry.ready[resource]>time+1e-9 || (both && Math.max(entry.ready.life,entry.ready.mana)>time+1e-9))return false;
+        if (both ? player.hp>=player.max && player.mana>=player.stats.mana : resource==="life"?player.hp>=player.max:player.mana>=player.stats.mana)return false;
+        entry.commit?.(0);
+        const recovery={life:player.hp,mana:player.mana,P:{life:player.max,mana:player.stats.mana}};
+        combat.recover(recovery,resource,potion);
+        player.hp=recovery.life;player.mana=recovery.mana;
+        entry.ready[resource]=time+combat.potionCooldown;
+        if(both)entry.ready.life=entry.ready.mana=entry.ready[resource];
+        return true;
+      },
+    });
+    const entry:{model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void}={model,ready,player,catalog};
+    model.reset(true);
+    pharmacies.set(key,entry);
+    return entry;
+  }
+  function pharmacy(id:string) {
+    const player=players.get(id);
+    if(!player||player.kind!=="player")return null;
+    const {model}=pharmacyFor(player);
+    const state=model.state;
+    return {...state,items:model.catalog().map(item=>({...item,count:state.inventory[item.key]||0}))};
+  }
+  function pharmacyAction(id:string,action:"buy"|"refill"|"use"|"select",key:string,quantity:number,resource:PotionResource,commit:(cost:number)=>void) {
+    const player=players.get(id);
+    if(!player||player.kind!=="player"||player.hp<=0)throw new Error("Nhân vật chưa thể dùng Dược Điếm.");
+    const entry=pharmacyFor(player);
+    entry.commit=commit;
+    try {
+      if(action==="buy")entry.model.buy(key,quantity);
+      else if(action==="refill")entry.model.refill();
+      else if(action==="select")entry.model.select(resource,key);
+      else if(!entry.model.use(resource))throw new Error("Không thể dùng thuốc. Kiểm tra túi thuốc, HP/MP và thời gian chờ.");
+    } finally {entry.commit=undefined;}
+  }
   function supplies(id:string) {
     const player=players.get(id);
     if(!player)return null;
@@ -362,19 +424,30 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       }
     }
   }
+  function appearance(actor:Player) {
+    const eq:Record<string,Record<string,number>>={};
+    for(const key of ["weapon","armor","helm","horse"]){
+      const source=actor.profile.eq?.[key];
+      if(!source)continue;
+      eq[key]=Object.fromEntries(["d","k","p","s","lvl","enh"].filter(field=>typeof source[field]==="number"&&Number.isFinite(source[field])).map(field=>[field,source[field]]));
+    }
+    return { sex:actor.profile.sex===1?1:0, eq };
+  }
   function snapshot(viewerId?:string) {
     const viewer = viewerId ? players.get(viewerId) : undefined;
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
     return {
       score:{...score},
+      potionSlots:viewer?.kind==="player" ? {life:pharmacyFor(viewer).model.slot("life"),mana:pharmacyFor(viewer).model.slot("mana")} : null,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
         .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
         mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0,
+        appearance:player.kind==="player" && (!viewer || Math.abs(player.x-viewer.x)<=1200&&Math.abs(player.y-viewer.y)<=800) ? appearance(player) : undefined,
       })),
     };
   }
-  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill,supply,supplies };
+  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill,supply,supplies,pharmacy,pharmacyAction };
 }

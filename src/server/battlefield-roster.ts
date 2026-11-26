@@ -126,5 +126,5 @@ export function createBattlefieldRoster(now = Date.now) {
     refresh(match,timestamp);
     return snapshot(match,timestamp);
   }
-  return { join, sync, leave, active, reset:()=>{match=undefined;} };
+  return { join, sync, leave, active };
 }

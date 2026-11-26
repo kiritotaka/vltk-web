@@ -228,6 +228,16 @@ var ra = function (A, n) {
 };
 
 var speedDrawElapsed = 0;
+var fpsDrawStarted = 0, fpsDrawFrames = 0;
+var countGameDraw = function (timestamp) {
+  if (!fpsDrawStarted || timestamp-fpsDrawStarted>2500) { fpsDrawStarted=timestamp;fpsDrawFrames=0;return; }
+  fpsDrawFrames++;
+  const elapsed=timestamp-fpsDrawStarted;
+  if(elapsed<750)return;
+  const value=m("#gameFps");
+  if(value)value.textContent=Math.round(fpsDrawFrames*1000/elapsed)+" FPS";
+  fpsDrawStarted=timestamp;fpsDrawFrames=0;
+};
 var P_ = function s(A) {
   if (window.localGameLoading?.active) { speedDrawElapsed = 0; o5 = A; Wm = Date.now(); requestAnimationFrame(s); return; }
   Wm = Date.now();
@@ -240,7 +250,7 @@ var P_ = function s(A) {
       !i0.blocked &&
       (ra("mo phong", () => { if (mapAccess.tick()) p_(n); }),
         (speedDrawElapsed += n),
-        (!Pi().saver || (Vm = !Vm)) && ra("ve", () => { const elapsed = speedDrawElapsed; speedDrawElapsed = 0; D_(elapsed); })),
+        (!Pi().saver || (Vm = !Vm)) && ra("ve", () => { const elapsed = speedDrawElapsed; speedDrawElapsed = 0; D_(elapsed); countGameDraw(A); })),
     (c5 += n),
     c5 > 0.1 &&
       o.fac &&
