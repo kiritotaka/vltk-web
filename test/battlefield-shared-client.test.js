@@ -12,7 +12,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const originalEnemy={id:'original'},originalGround={name:'Old loot',x:100,y:200};
   function element() {return {children:[],classList:{add(){},toggle(){},contains:()=>true},style:{},append(...nodes){this.children.push(...nodes);},remove(){this.removed=true;}};}
   const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
-  const own={id:'own',kind:'player',name:'Test',team:'song',x:680,y:2784,hp:300,max:300,mana:200,deaths:0,casts:0};
+  const own={id:'own',kind:'player',name:'Test',team:'song',x:680,y:2784,hp:300,max:300,mana:200,deaths:0,casts:0,mounted:true};
   const enemy={id:'enemy',kind:'player',name:'Other',team:'jin',x:710,y:2784,hp:250,max:250,mana:200,deaths:0,tid:599,faction:'emei',appearance:{sex:1,eq:{}}};
   const sim={...enemy,id:'sim',kind:'sim',name:'SIM 9',team:'song',faction:'shaolin',appearance:{sex:0,eq:{}}};
   const missingLook={...enemy,id:'no-appearance',faction:'unknown',appearance:undefined};
@@ -23,7 +23,8 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const s={
     window:{localGameAuth:{user:{role:'user'}},localGameStorage:{pending:0,flush:async()=>{}}},
     document:{createElement:element,body:element(),addEventListener(){}},
-    m:get, o:{ctrl:'auto',autoMap:true}, v:{x:10,y:20}, l:{town:true,enemies:[originalEnemy],ground:[originalGround]},
+    m:get, o:{ctrl:'auto',autoMap:true}, v:{x:10,y:20}, l:{town:true,enemies:[originalEnemy],ground:[originalGround],mounted:true,jx:{key:'mounted'}},
+    J3:()=>true,N8:()=>({key:s.l.mounted?'mounted':'on-foot'}),
     Z0:{key:37}, Y:{}, MapsEngine:{getMapBackground:x=>x}, bA:x=>x, Qv:()=>input, WA:()=>({auto:false}), performance:{now:()=>timestamp},Jt:(fac,sex)=>fac==='unknown'?null:({anim:fac+sex}),
     ma:id=>{s.Z0.key=id;for(const item of s.l.ground)item.x=400;},n0(){},J(html,ready){dialog=html;ready?.();}, $(){},y8:()=>'jxidle',
     r0:{599:{anim:'enemy'}},kn:()=>0,AbortSignal,crypto:{randomUUID:()=> 'pharmacy-test'},D:value=>String(value),k:error=>{throw Error(error);},
@@ -91,6 +92,8 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   s.sharedBattlefield.tick(.1);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(requests[1][1].target,'enemy');
+  assert.equal(s.l.jx.key,'mounted');
+  own.mounted=false;
   assert.equal(frameFx,1,"Native sprite simulation advances in the shared tick");
   assert.equal(s.l.fx.length,1,"Repeated snapshots do not replay the effect");
   assert.equal(requests[1][1].movement.sequence,1);
@@ -101,6 +104,9 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   s.sharedBattlefield.tick(.1);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(requests[3][1].target,"enemy","Auto acquires a hostile player without a click");
+  assert.equal(s.l.mounted,false);
+  s.sharedBattlefield.tick(.1);
+  assert.equal(s.l.jx.key,'on-foot');
   const controls=s.document.body.children[0];
   assert.equal(controls.children.length,4);
   controls.children[0].onclick();
@@ -122,6 +128,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(originalGround.x,100);
   assert.equal(s.o.ctrl,'auto');
   assert.equal(s.v.x,10);
+  assert.equal(s.l.jx.key,'mounted');
 });
 
 test('FPS counts drawn frames rather than skipped animation callbacks',()=>{

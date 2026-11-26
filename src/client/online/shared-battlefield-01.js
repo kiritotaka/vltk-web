@@ -5,7 +5,7 @@ var sharedBattlefield = (() => {
   let controls = null;
   const entities = new Map();
   const fields = ["clock",'bgImg','zoneShown','town','battlefield','life','mana','deadT','enemies','ground','fx','fxQ','corpses',
-    'combatProjectiles','mounted','rideCd','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
+    'combatProjectiles','mounted','rideCd','jx','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
 
   async function request(action, payload) {
     const response = await fetch('/api/battlefield/shared/' + action, {
@@ -448,6 +448,13 @@ var sharedBattlefield = (() => {
     const current=session;
     if (!current?.position) return;
     l.clock=(l.clock||0)+dt;
+    const riding=!!l.mounted;
+    if(current.renderedMount!==riding && typeof J3==="function" && typeof N8==="function"){
+      current.renderedMount=riding;
+      const previous=l.jx?.key;
+      l.jx=J3() ? N8() : null;
+      if(l.jx && l.jx.key!==previous && typeof Bf==="function")Bf();
+    }
     if((l.rideCd||0)>0)l.rideCd=Math.max(0,l.rideCd-dt);
     if(typeof advanceSkillContacts==="function" && (l.fx.length || l.combatProjectiles.length || l.fxQ.length)) advanceSkillContacts(dt);
     const mix=1-Math.exp(-dt*16);
