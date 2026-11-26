@@ -14,18 +14,24 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
   const own={id:'own',kind:'player',name:'Test',team:'song',x:680,y:2784,hp:300,max:300,mana:200,deaths:0,casts:0};
   const enemy={id:'enemy',kind:'player',name:'Other',team:'jin',x:710,y:2784,hp:250,max:250,mana:200,deaths:0,tid:599,faction:'emei',appearance:{sex:1,eq:{}}};
+  const sim={...enemy,id:'sim',kind:'sim',name:'SIM 9',team:'song',faction:'shaolin',appearance:{sex:0,eq:{}}};
+  const missingLook={...enemy,id:'no-appearance',faction:'unknown',appearance:undefined};
   const snapshot={
     matchId:'shared',player:{id:'own',team:'song',movementSequence:0},teams:{song:{humans:1,sims:99,soldiers:35},jin:{humans:1,sims:99,soldiers:35}},
-    combat:{score:{song:0,jin:0},players:[own,enemy],visuals:[{id:1,actor:"enemy",skill:22,level:10,missiles:3,element:"cold",melee:true,tx:680,ty:2784}]},
+    combat:{score:{song:0,jin:0},players:[own,enemy,sim,missingLook],visuals:[{id:1,actor:"enemy",skill:1061,level:10,missiles:3,element:"cold",team:"jin",target:"own",geo:{k:"spot",r:100},secondary:true,melee:true,tx:680,ty:2784}]},
   };
   const s={
     window:{localGameAuth:{user:{role:'user'}},localGameStorage:{pending:0,flush:async()=>{}}},
     document:{createElement:element,body:element(),addEventListener(){}},
     m:get, o:{ctrl:'auto',autoMap:true}, v:{x:10,y:20}, l:{town:true,enemies:[originalEnemy],ground:[originalGround]},
-    Z0:{key:37}, Y:{}, MapsEngine:{getMapBackground:x=>x}, bA:x=>x, Qv:()=>input, WA:()=>({auto:false}), performance:{now:()=>timestamp},Jt:(fac,sex)=>({anim:fac+sex}),
+    Z0:{key:37}, Y:{}, MapsEngine:{getMapBackground:x=>x}, bA:x=>x, Qv:()=>input, WA:()=>({auto:false}), performance:{now:()=>timestamp},Jt:(fac,sex)=>fac==='unknown'?null:({anim:fac+sex}),
     ma:id=>{s.Z0.key=id;for(const item of s.l.ground)item.x=400;},n0(){},J(html,ready){dialog=html;ready?.();}, $(){},y8:()=>'jxidle',
     r0:{599:{anim:'enemy'}},kn:()=>0,AbortSignal,crypto:{randomUUID:()=> 'pharmacy-test'},D:value=>String(value),k:error=>{throw Error(error);},
     setTimeout(){},
+    arenaSimulator:{replayBattlefieldSkill(from,to,skill,targets){
+      visuals.push({from,to,skill,targets});
+      s.l.fx.push({k:"boom"});
+    }},
     advanceSkillContacts(){frameFx++;},
     queueSkillContact(from,to,skill,hit,options){
       visuals.push({from,to,skill,options});
@@ -58,10 +64,20 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(s.l.enemies[0].id,'enemy');
   assert.equal(s.l.enemies[0].look.anim,'emei1');
   assert.equal(s.l.enemies[0].sharedAvatar,true);
+  const simulated=s.l.enemies.find(actor=>actor.id==='sim');
+  assert.equal(simulated.look.anim,'shaolin0');
+  assert.equal(simulated.battlefieldMonster,false);
+  const fallback=s.l.enemies.find(actor=>actor.id==='no-appearance');
+  assert.equal(fallback.look.anim,'wudang0');
+  assert.equal(fallback.tid,undefined); // Never use a monster as a player avatar.
+
   assert.equal(s.l.fx.length,1);
   assert.equal(visuals[0].skill.L,10);
   assert.equal(visuals[0].skill.nMis,3);
   assert.equal(visuals[0].skill.parts.cold,1);
+  assert.equal(visuals[0].skill.geo.r,100);
+  assert.equal(visuals[0].skill.ev,true);
+  assert.equal(visuals[0].targets.length,2,"Secondary effects receive nearby enemy bodies and exclude allies");
   assert.equal(s.l.life,own.hp);
   assert.equal(s.o.ctrl,'auto');
   const renderer={ count:0,update(){ this.count++; return {}; } };

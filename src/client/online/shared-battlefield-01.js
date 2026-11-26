@@ -5,7 +5,7 @@ var sharedBattlefield = (() => {
   let controls = null;
   const entities = new Map();
   const fields = ["clock",'bgImg','zoneShown','town','battlefield','life','mana','deadT','enemies','ground','fx','fxQ','corpses',
-    'combatProjectiles','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
+    'combatProjectiles','mounted','rideCd','moveTo','manTgt','tgt','clickedTarget','pickTarget'];
 
   async function request(action, payload) {
     const response = await fetch('/api/battlefield/shared/' + action, {
@@ -167,6 +167,11 @@ var sharedBattlefield = (() => {
     if (session.casts !== undefined && session.casts !== me.casts) { v.act="at";v.actT=0; }
     session.casts=me.casts;
     session.position=me;
+    if(typeof me.mounted==="boolean" && !!l.mounted!==me.mounted &&
+        (session.mountSent===undefined || session.mountSent===!!l.mounted)){
+      l.mounted=me.mounted;
+      if(typeof O3==="function")O3();
+    }
     v.sharedSupport=me.support;
     l.life=me.hp;l.mana=me.mana;
     const visible=new Set();
@@ -176,17 +181,22 @@ var sharedBattlefield = (() => {
       visible.add(actor.id);
       let entity=entities.get(actor.id);
       if (!entity) {
-        const tid=r0[actor.tid] ? actor.tid : Object.keys(r0).find(key=>r0[key]?.anim);
+        const avatar=actor.kind==="player" || actor.kind==="sim";
+        const tid=avatar ? undefined : actor.tid;
         entity={ id:actor.id, n:actor.name, tid, x:actor.x, y:actor.y, hp:actor.hp, max:actor.max,
           series:0, cls:actor.kind==='marshal'?'boss':'normal', sz:1, face:1, act:'st', actT:0, r:16,
-          battlefieldTeam:actor.team, battlefieldMonster:true, sharedActor:true };
-        if(actor.kind==="player"&&actor.appearance&&typeof Jt==="function"){
-          const look=Jt(actor.faction,actor.appearance.sex);
-          if(look){
-            entity.sharedAvatar=true;entity.look=look;entity.localTeam=session.state.player.team;
-            entity.profile={fac:actor.faction,sex:actor.appearance.sex,eq:Object.fromEntries(Object.entries(actor.appearance.eq).map(([slot,item])=>[slot,{...item,base:[],req:[],mag:[]}])),attr:{},sk:{}};
-            entity.stats={...l.P,mana:Math.max(0,actor.mana)};entity.mana=actor.mana;
-          }
+          battlefieldTeam:actor.team, battlefieldMonster:!avatar, sharedActor:true };
+        if(avatar){
+          const sex=actor.appearance?.sex||0;
+          const faction=actor.faction;
+          const look=typeof Jt==="function" ? Jt(faction,sex) : null;
+          const fallback=sex ? "emei" : "wudang";
+          entity.sharedAvatar=true;entity.look=look || (typeof Jt==="function" ? Jt(fallback,sex) : null);
+          entity.localTeam=session.state.player.team;
+          entity.profile={fac:look?faction:fallback,sex,eq:Object.fromEntries(
+            Object.entries(actor.appearance?.eq||{}).map(([slot,item])=>[slot,{...item,base:[],req:[],mag:[]}])
+          ),attr:{},sk:{}};
+          entity.stats={...l.P,mana:Math.max(0,actor.mana)};entity.mana=actor.mana;
         }
         entities.set(actor.id,entity);
         changedActors=true;
@@ -195,11 +205,10 @@ var sharedBattlefield = (() => {
       entity.casts=actor.casts;
       const dx=actor.x-entity.remoteX,dy=actor.y-entity.remoteY;
       const jump=entity.deaths!==actor.deaths || (Number.isFinite(dx) && Math.hypot(dx,dy)>160);
-      const estimate=!jump && interval>0 && interval<.75 && Math.hypot(dx,dy)<interval*500;
       if(jump){entity.x=actor.x;entity.y=actor.y;}
       Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,
-        velocityX:estimate?dx/interval:0,velocityY:estimate?dy/interval:0,receivedAt,deaths:actor.deaths,
-        dead:false,stun:actor.stun?1:0,sharedSupport:actor.support});
+        fromX:entity.x,fromY:entity.y,receivedAt,blendMs:Math.max(100,Math.min(300,interval*1000||125)),deaths:actor.deaths,
+        dead:false,stun:actor.stun?1:0,sharedSupport:actor.support,mounted:!!actor.mounted});
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
@@ -223,13 +232,23 @@ var sharedBattlefield = (() => {
         caster.face=end.x<from.x?-1:1;caster.dir=kn(end.x-from.x,end.y-from.y);
         caster.act="at";caster.actT=0;
       }
+      if(event.actor===me.id && event.skill && event.skill!==1081 && typeof G8==="function")G8(event.skill);
       if(event.skill && typeof queueSkillContact==="function" && (!o.lowFx || event.actor===me.id || event.target===me.id)){
         const skill={id:event.skill,L:event.level,nMis:event.missiles,rad:event.rad,melee:event.melee,
           visualAnchor:{x:end.x,y:end.y-14},ox:from.x,oy:from.y,parts:{[event.element||"phys"]:1},
-          geo:event.geo,ev:event.secondary,tot:1};
-        if(typeof arenaSimulator!=="undefined" && arenaSimulator?.replayBattlefieldSkill)
-          arenaSimulator.replayBattlefieldSkill({...from,hp:1,face:end.x<from.x?-1:1},end,skill);
-        else queueSkillContact(from,end,skill,()=>{}, {windup:0,targets:()=>[end]});
+          geo:event.geo,ev:event.secondary,ev2:event.ev2,phys:event.phys,targets:event.targets,tot:1};
+        if(typeof arenaSimulator!=="undefined" && arenaSimulator?.replayBattlefieldSkill) {
+          const team=event.team || (event.actor===me.id ? state.player.team : caster?.battlefieldTeam);
+          const range=Math.min(650,Math.max(180,event.rad||0,event.geo?.area||0));
+          const targets=[end];
+          if(team && (event.geo || event.secondary))for(const actor of state.combat.players) {
+            if(actor.team===team || actor.id===event.target || actor.dead)continue;
+            if(Math.min(Math.hypot(actor.x-end.x,actor.y-end.y),Math.hypot(actor.x-from.x,actor.y-from.y))<=range)
+              targets.push({x:actor.x,y:actor.y,hp:1,r:16});
+            if(targets.length>=24)break;
+          }
+          arenaSimulator.replayBattlefieldSkill({...from,hp:1,face:end.x<from.x?-1:1,dir:kn(end.x-from.x,end.y-from.y)},end,skill,targets);
+        } else queueSkillContact(from,end,skill,()=>{}, {windup:0,targets:()=>[end]});
       } else {
         const color=event.actor===me.id||entities.get(event.actor)?.battlefieldTeam===session.state.player.team?"#ffd06e":"#c77bff";
         l.fx.push(event.melee ? {k:"ring",x:end.x,y:end.y,color,life:.24,max:.24,r:18} :
@@ -275,6 +294,7 @@ var sharedBattlefield = (() => {
     Object.assign(v,current.previous.hero);
     o.ctrl=current.previous.ctrl;o.autoMap=current.previous.autoMap;
     if(typeof qA==="function")qA();
+    if(typeof O3==="function")O3();
     m('#townBar')?.classList.toggle('hidden',!l.town);
     Y.target=null;
     if (remote) await request('leave',current.ref).catch(()=>{});
@@ -289,7 +309,7 @@ var sharedBattlefield = (() => {
       await window.localGameStorage?.flush();
       if (window.localGameStorage?.pending) throw new Error('Hãy đợi lưu nhân vật xong rồi thử lại.');
       const slot=y8();
-      const state=await request(action,{team,slot});
+      const state=await request(action,{team,slot,...(action==='join'?{mounted:!!l.mounted}:{})});
       if(action==='register')return state;
       n0(true);
       enter(state,slot);
@@ -410,6 +430,7 @@ var sharedBattlefield = (() => {
     const current=session;
     if (!current?.position) return;
     l.clock=(l.clock||0)+dt;
+    if((l.rideCd||0)>0)l.rideCd=Math.max(0,l.rideCd-dt);
     if(typeof advanceSkillContacts==="function" && (l.fx.length || l.combatProjectiles.length || l.fxQ.length)) advanceSkillContacts(dt);
     const mix=1-Math.exp(-dt*16);
     const now=performance.now();
@@ -418,10 +439,14 @@ var sharedBattlefield = (() => {
     const prediction=manualMove ? {x:inputX,y:inputY} :
       (!current.wasMoving && o.ctrl!=="manual" && now-(current.lastSync||0)<220 ? current.predictedInput : null);
     if(prediction && (prediction.x || prediction.y) && !current.position.stun && v.act!=="at" &&
-        typeof gt==="function" && Math.hypot(current.position.x-v.x,current.position.y-v.y)<30){
+        typeof gt==="function"){
+      const correctionX=current.position.x-v.x,correctionY=current.position.y-v.y;
+      const ahead=-(correctionX*prediction.x+correctionY*prediction.y);
+      const attenuation=Math.max(0,Math.min(1,(42-ahead)/24));
+      const correction=Math.min(1,dt*(ahead>26?9:4));
       const speed=(typeof Ra==="function"?Ra():1)*(current.position.support?.speed || 1);
-      const step=150*speed*dt/Math.max(1,Math.hypot(prediction.x,prediction.y));
-      gt(v,v.x+prediction.x*step,v.y+prediction.y*step);
+      const step=150*speed*dt*attenuation/Math.max(1,Math.hypot(prediction.x,prediction.y));
+      gt(v,v.x+prediction.x*step+correctionX*correction,v.y+prediction.y*step+correctionY*correction);
     } else {
       v.x+=(current.position.x-v.x)*mix;
       v.y+=(current.position.y-v.y)*mix;
@@ -435,11 +460,13 @@ var sharedBattlefield = (() => {
         actor.x=actor.remoteX;actor.y=actor.remoteY;actor.moving=false;
         continue;
       }
-      const lead=actor.act==="at" || actor.stun ? 0 : Math.min(.09,Math.max(0,(now-actor.receivedAt)/1000));
-      const x=actor.remoteX+actor.velocityX*lead-actor.x,y=actor.remoteY+actor.velocityY*lead-actor.y;
-      actor.moving=Math.abs(x)+Math.abs(y)>1;
-      if(actor.moving) { actor.face=x<0?-1:1;actor.dir=kn(x,y); }
-      actor.x+=x*mix;actor.y+=y*mix;
+      const blend=Math.max(0,Math.min(1,(now-actor.receivedAt)/actor.blendMs));
+      const x=actor.fromX+(actor.remoteX-actor.fromX)*blend;
+      const y=actor.fromY+(actor.remoteY-actor.fromY)*blend;
+      const dx=x-actor.x,dy=y-actor.y;
+      actor.moving=blend<1 && Math.abs(actor.remoteX-actor.fromX)+Math.abs(actor.remoteY-actor.fromY)>1;
+      if(actor.moving && actor.act!=="at" && (dx || dy)) { actor.face=dx<0?-1:1;actor.dir=kn(dx,dy); }
+      actor.x=x;actor.y=y;
     }
     if(current.finished || current.sending || (now<current.nextSync && !(manualMove&&!current.wasMoving&&now-(current.lastSync||0)>75))) return;
     let [x,y]=[inputX,inputY];
@@ -459,7 +486,10 @@ var sharedBattlefield = (() => {
     current.nextSync=now+(x||y||aim?125:300);
     current.sending=true;
     const skill=o.mainLock ? (o.main==='basic'?0:Number(o.main)||null) : null;
-    void request('sync',{...current.ref,target:aim?.id||null,skill,
+    const selected=typeof T!=="undefined" ? T[skill ?? l.P?.main?.id] : null;
+    if(aim && !chase && selected && typeof tP==="function")tP({id:selected.id});
+    current.mountSent=!!l.mounted;
+    void request('sync',{...current.ref,target:aim?.id||null,skill,mounted:current.mountSent,
       movement:{...current.predictedInput,sequence:++current.sequence}})
       .then(state=>{if(session===current) apply(state);})
       .catch(error=>{

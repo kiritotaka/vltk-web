@@ -28,6 +28,8 @@ const factions = ["shaolin","tianwang","tangmen","wudu","emei","cuiyan","gaibang
 
 interface Player extends SharedCombatant {
   deaths: number;
+  mountReadyAt?:number;
+  appearance?: ReturnType<typeof actorAppearance>;
   pharmacyKey?:string;
   points: number;
   requestedTarget: string | null;
@@ -38,8 +40,19 @@ interface Player extends SharedCombatant {
   home: Point; reward: number; returnAt: number; route: number; waypoint: number;
 }
 
+function actorAppearance(profile:SimulatorProfile) {
+  const eq:Record<string,Record<string,number>>={};
+  for(const key of ["weapon","armor","helm","horse"]){
+    const source=profile.eq?.[key];
+    if(!source)continue;
+    eq[key]=Object.fromEntries(["d","k","p","s","lvl","enh"].filter(field=>typeof source[field]==="number"&&Number.isFinite(source[field])).map(field=>[field,source[field]]));
+  }
+  return {sex:profile.sex===1?1:0,eq};
+}
+
 export function createBattlefieldFight(earned?: (id:string,points:number)=>void, collected?: (id:string,kind:string)=>void, random=Math.random) {
   const players = new Map<string, Player>();
+  const departed = new Map<string,{points:number;deaths:number;team:BattlefieldTeam}>();
   const score: Record<BattlefieldTeam,number> = { song: 0, jin: 0 };
   const latestHit = new Map<string, { player: Player; time: number }>();
   let time = 0, nextSearch = 0, nextDropCheck=0, lastEffectTick=0,dropId=0;
@@ -47,7 +60,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   const dirty=new Set<Player>();
   let visualId=0;
   const supportVisuals:Array<{id:number;skill:number;x:number;y:number;until:number;actor:string}> = [];
-  const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;level:number;missiles:number;rad:number;geo:SharedCombatant["stats"]["main"]["geo"];secondary:boolean;element:string;target:string;melee:boolean;until:number}>=[];
+  const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;team:BattlefieldTeam;level:number;missiles:number;rad:number;targets?:number;phys?:boolean;ev2?:boolean;geo:SharedCombatant["stats"]["main"]["geo"];secondary:boolean;element:string;target:string;melee:boolean;until:number}>=[];
   const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
@@ -102,16 +115,24 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
 
   function join(id:string, team:BattlefieldTeam, profile:SimulatorProfile, pharmacyKey=id) {
     if (players.has(id)) return;
+    const previous=departed.get(pharmacyKey);
+    if(previous && previous.team!==team)throw Object.assign(new Error('Nhân vật đã tham chiến ở phe khác.'),{status:409});
     const stats = combat.statsFor(profile);
     if (!(Number.isFinite(stats.life) && stats.life > 0 && Number.isFinite(stats.mana) && stats.mana >= 0 &&
       Number.isFinite(stats.main.rad) && stats.main.rad > 0)) throw new Error('Chỉ số nhân vật không hợp lệ.');
     add(id,team,profile,stats,"player",battlefieldSpawn(team),killPoints,0);
-    players.get(id)!.pharmacyKey=pharmacyKey;
+    const player=players.get(id)!;
+    player.pharmacyKey=pharmacyKey;
+    if(previous){
+      player.points=previous.points;
+      player.deaths=previous.deaths;
+      departed.delete(pharmacyKey);
+    }
   }
 
   function add(id:string,team:BattlefieldTeam,profile:SimulatorProfile,stats:SharedCombatant["stats"],kind:Player["kind"],home:Point,reward:number,tid:number) {
     players.set(id,{
-      id,team,profile,stats,...home,home,kind,battlefieldTeam:team,battlefieldMonster:kind==="npc",battlefieldBoss:kind==="marshal",reward,returnAt:Infinity,route:0,waypoint:0,hp:stats.life,max:stats.life,mana:stats.mana,
+      id,team,profile,stats,...home,home,kind,appearance:kind==="player"||kind==="sim" ? actorAppearance(profile) : undefined,battlefieldTeam:team,battlefieldMonster:kind==="npc",battlefieldBoss:kind==="marshal",reward,returnAt:Infinity,route:0,waypoint:0,hp:stats.life,max:stats.life,mana:stats.mana,
       def:stats.def,res:stats.res,series:stats.series,deaths:0,points:0,actionRevision:0,cooldown:0,
       stun:0,poison:0,poisonDmg:0,slowT:0,slowPower:0,requestedTarget:null,skillId:null,casts:0,r:15,tid,
     });
@@ -120,6 +141,8 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   function leave(id: string) {
     const player = players.get(id);
     if (!player) return;
+    if(player.kind==="player" && player.pharmacyKey)
+      departed.set(player.pharmacyKey,{points:player.points,deaths:player.deaths,team:player.team});
     player.dead = true;
     player.actionRevision++;
     players.delete(id);
@@ -151,7 +174,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
         desired.add(id);
         if (!players.has(id)) {
           const faction = factions[seat % factions.length];
-          const profile = computerProfile(faction);
+          const profile = computerProfile(faction,true);
           const home = layout.armySpawns[team][seat % layout.armySpawns[team].length];
           add(id,team,{...profile.profile,name:"SIM " + (seat+1)},profile.stats,"sim",home,150,599);
           players.get(id)!.route = seat % layout.paths.length;
@@ -177,11 +200,12 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     for (const actor of players.values()) if (actor.kind === "sim" && !desired.has(actor.id)) leave(actor.id);
   }
 
-  function computerProfile(faction:string) {
-    let entry = aiProfiles.get(faction);
+  function computerProfile(faction:string,sectSkill=false) {
+    const key=sectSkill ? faction+"-sim" : faction;
+    let entry = aiProfiles.get(key);
     if (!entry) {
-      entry = combat.computerProfile(faction);
-      aiProfiles.set(faction,entry);
+      entry = combat.computerProfile(faction,sectSkill);
+      aiProfiles.set(key,entry);
     }
     return entry;
   }
@@ -255,7 +279,8 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
         cast = combat.cast(player,target,actors,skill,()=>{
           if (visuals.length>=192)visuals.shift();
           visuals.push({id:++visualId,actor:player.id,x:player.x,y:player.y,tx:target.x,ty:target.y,
-            skill:Number(skill.id)||0,level:skill.L||1,missiles:skill.nMis||0,rad:skill.rad,geo:skill.geo,secondary:!!skill.ev,
+            skill:Number(skill.id)||0,team:player.team,level:skill.L||1,missiles:skill.nMis||0,rad:skill.rad,
+            targets:skill.targets,phys:skill.phys,ev2:skill.ev2,geo:skill.geo,secondary:!!skill.ev,
             element:Object.entries(skill.parts).reduce((best,[key,value])=>value>(skill.parts[best]||0)?key:best,"phys"),
             target:target.id,melee:skill.melee!==false,until:time+1});
         });
@@ -296,6 +321,14 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     }
     return {x:actor.x,y:actor.y};
   }
+  function setMounted(id:string,mounted:boolean) {
+    const actor=players.get(id);
+    if(!actor || actor.kind!=="player" || actor.dead || !!actor.mounted===mounted ||
+      (actor.mountReadyAt||0)>time || combat.locked(actor) || (mounted && !combat.canMount(actor)))return;
+    actor.mounted=mounted;
+    actor.mountReadyAt=time+combat.mountCooldown;
+  }
+
   function selectSkill(id:string,skillId:number|null) {
     const actor=players.get(id);
     if (!actor) return;
@@ -441,15 +474,6 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       }
     }
   }
-  function appearance(actor:Player) {
-    const eq:Record<string,Record<string,number>>={};
-    for(const key of ["weapon","armor","helm","horse"]){
-      const source=actor.profile.eq?.[key];
-      if(!source)continue;
-      eq[key]=Object.fromEntries(["d","k","p","s","lvl","enh"].filter(field=>typeof source[field]==="number"&&Number.isFinite(source[field])).map(field=>[field,source[field]]));
-    }
-    return { sex:actor.profile.sex===1?1:0, eq };
-  }
   function snapshot(viewerId?:string) {
     const viewer = viewerId ? players.get(viewerId) : undefined;
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
@@ -471,9 +495,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
         mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0, support:combat.supportStatus(player,time),
-        appearance:player.kind==="player" && (!viewer || Math.abs(player.x-viewer.x)<=1200&&Math.abs(player.y-viewer.y)<=800) ? appearance(player) : undefined,
+        mounted:!!player.mounted,
+        appearance:!viewer || (Math.abs(player.x-viewer.x)<=1250 && Math.abs(player.y-viewer.y)<=1000) ? player.appearance : undefined,
       })),
     };
   }
-  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill,supply,supplies,pharmacy,pharmacyAction };
+  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill,setMounted,supply,supplies,pharmacy,pharmacyAction };
 }

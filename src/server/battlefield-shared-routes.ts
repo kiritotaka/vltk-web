@@ -172,7 +172,8 @@ export function registerSharedBattlefield(
 
   function participate(request:FastifyRequest,reply:import('fastify').FastifyReply, registering:boolean) {
     const { id } = requireUser(request);
-    const { team, slot, matchId } = command(request);
+    const { team, slot, matchId, mounted } = command(request);
+    if (mounted !== undefined && typeof mounted !== 'boolean') return invalid('Trạng thái cưỡi ngựa không hợp lệ.');
     if ((team !== 'song' && team !== 'jin') || typeof slot !== 'string' || !slots.has(slot)) {
       return invalid('Hãy chọn phe và ô nhân vật hợp lệ.');
     }
@@ -211,7 +212,9 @@ export function registerSharedBattlefield(
     const room = roster.join(id,team,character.name);
     if (!room.player) return invalid('Không lấy được suất tham chiến.',409);
     try {
+      current.fight.pruneHumans(new Set(room.actors.map(actor=>actor.id)));
       current.fight.join(room.player.id,team,character,id+":"+slot);
+      if(typeof mounted==='boolean')current.fight.setMounted(room.player.id,mounted);
       if(!recipients.has(room.player.id)) recipients.set(room.player.id,{accountId:id,slot:slot as CharacterSlot,pending:0,goods:{}});
     } catch (error) {
       roster.leave(id,room.matchId,room.player.id);
@@ -225,8 +228,9 @@ export function registerSharedBattlefield(
 
   app.post('/api/battlefield/shared/sync', (request,reply) => {
     const { id } = requireUser(request);
-    const { matchId, participantId, movement, target, skill } = command(request);
+    const { matchId, participantId, movement, target, skill, mounted } = command(request);
     if (typeof matchId !== 'string' || typeof participantId !== 'string' ||
+        (mounted !== undefined && typeof mounted !== 'boolean') ||
         (target !== undefined && target !== null && typeof target !== 'string') ||
         (skill !== undefined && skill !== null && (typeof skill !== 'number' || !Number.isSafeInteger(skill) || skill < 0))) {
       return invalid('Mã trận, mục tiêu hoặc mã tham gia không hợp lệ.');
@@ -236,6 +240,7 @@ export function registerSharedBattlefield(
     });
     if (!current || matchId !== current.id) return invalid('Trận đấu đã kết thúc.',409);
     if (now !== Date.now) { advance(room.endsAt);settle(); }
+    if (!room.finished && typeof mounted==='boolean')current.fight.setMounted(participantId,mounted);
     if (!room.finished && skill !== undefined) current.fight.selectSkill(participantId,skill as number | null);
     if (!room.finished && target !== undefined) current.fight.chooseTarget(participantId,target as string | null);
     return sendJson(reply,200,output(room));

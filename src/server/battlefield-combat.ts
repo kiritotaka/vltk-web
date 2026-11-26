@@ -47,6 +47,7 @@ export interface SharedCombatant {
   dead?: boolean;
   tid?: number;
   r: number;
+  mounted?:boolean;
 }
 
 let combatScripts: vm.Script[] | undefined;
@@ -123,23 +124,42 @@ export function createBattlefieldCombat(
     } finally { globals.o = previous;globals.arenaSimulator=simulator; }
   }
 
-  function computerProfile(faction:string) {
+  function computerProfile(faction:string, sectSkill=false) {
     const profile = Object.assign(native.I3(), {fac:faction,lvl:150,name:faction,main:"basic",lowFx:true});
     profile.attr.str=400;profile.attr.vit=345;
+    if (sectSkill) {
+      const skills=(globals.I[faction]?.skills||[]).map((id:number)=>globals.T[id])
+        .filter((skill:LegacyScope)=>native.UA(skill) && profile.lvl >= (skill.req||0));
+      const selected=skills.find((skill:LegacyScope)=>skill.tier===90) || skills[0];
+      if (!selected) throw new Error('Không có võ công tấn công cho SIM '+faction);
+      const weapon=native.j1(selected);
+      if (weapon!==null && weapon!==9) {
+        const kind=weapon===7 || weapon>=100 ? 1 : 0;
+        const type=weapon===7 ? 0 : weapon>=100 ? weapon-100 : weapon;
+        const catalog=globals.S.items[kind]?.list || [];
+        const template=catalog.filter((item:LegacyScope)=>item.k===type).sort((a:LegacyScope,b:LegacyScope)=>a.lvl-b.lvl)[0];
+        if(template)profile.eq.weapon={...template,d:kind,k:type,mag:[]};
+      }
+      profile.sk[selected.id]=Math.min(10,selected.max||10);
+      profile.main=selected.id;
+      profile.mainLock=true;
+    }
     const stats=statsFor(profile);
+    if(sectSkill && stats.main.id!==profile.main) throw new Error('SIM chưa dùng được võ công '+faction);
+
     return {profile,stats};
   }
 
   function actorContext<T>(actor: SharedCombatant, action: () => T): T {
-    const before = { profile: globals.o, hero: globals.v, stats: world.P, life: world.life, mana: world.mana };
+    const before = { profile: globals.o, hero: globals.v, stats: world.P, life: world.life, mana: world.mana, mounted:world.mounted };
     Object.assign(globals, { o: actor.profile, v: actor });
-    Object.assign(world, { P: actor.stats, life: actor.hp, mana: actor.mana });
+    Object.assign(world, { P: actor.stats, life: actor.hp, mana: actor.mana, mounted:!!actor.mounted });
     try { return action(); }
     finally {
       actor.hp = Math.max(0,Math.min(actor.max,world.life));
       actor.mana = Math.max(0,Math.min(actor.stats.mana,world.mana));
       Object.assign(globals, { o: before.profile, v: before.hero });
-      Object.assign(world, { P: before.stats, life: before.life, mana: before.mana });
+      Object.assign(world, { P: before.stats, life: before.life, mana: before.mana, mounted:before.mounted });
     }
   }
 
@@ -221,6 +241,7 @@ export function createBattlefieldCombat(
   function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void) {
     if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || support.fear(source,world.clock) || native.actorActionLocked(source) ||
         target.dead || target.hp <= 0 || source.team === target.team) return false;
+    if(!native.E3(globals.T[Number(skill.id)],!!source.mounted))return false;
     const reach = skill.geo?.k === 'self' ? skill.geo.r || skill.rad : skill.rad;
     if (native.skillCastDistance(source,target) > reach + (target.r || 12) ||
         (!native.skillIgnoresTerrain(skill) && !sight(source.x,source.y,target.x,target.y))) return false;
@@ -252,6 +273,7 @@ export function createBattlefieldCombat(
     .map((potion:SharedPotion)=>({...potion,key:potion.kind+":"+potion.tier,price:native.Ot(potion)}));
 }
 return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage,
+  canMount:(actor:SharedCombatant)=>actorContext(actor,()=>!!native.xe()), mountCooldown:native.aP as number,
   resetSupport: support.reset, fear: support.fear,
   supportSpeed(actor:SharedCombatant,time:number){const {id,level}=supportSkill(actor.profile);return support.speed(actor,id,level,time);},
   supportStatus(actor:SharedCombatant,time:number){

@@ -11,7 +11,7 @@ test('native shared hit credits the opposing team and respawns the defeated play
   attacker.attr.str=5000;
   const life=nativeGlobals.S.attr.indexOf('lifemax_v');
   attacker.eq={amulet:{d:4,lvl:1,base:[[life,250,250]],req:[],mag:[],s:-1}};
-  fight.join('song','song',attacker);
+  fight.join('song','song',attacker,'account:slot');
   fight.join('jin','jin',player('Kim'));
   fight.join('ally','song',player('Đồng đội'));
   fight.move('jin',726,2784);
@@ -36,6 +36,12 @@ test('native shared hit credits the opposing team and respawns the defeated play
   assert.deepEqual([loser.x,loser.y],[2904,800]);
   fight.tick(1);
   assert.equal(fight.snapshot().score.song,150);
+  fight.leave('song');
+  assert.throws(()=>fight.join('changed-team','jin',attacker,'account:slot'),{status:409});
+  fight.join('returned','song',attacker,'account:slot');
+  const returned=fight.snapshot();
+  assert.equal(returned.score.song,150);
+  assert.equal(returned.players.find(actor=>actor.id==='returned').points,150);
 });
 
 test('two signed-in SQLite characters share native hits, score and the respawn snapshot',async()=>{
@@ -171,7 +177,9 @@ test('normal Fastify server runs the shared room with live troop slots',async(t)
     assert.equal(rooms[1].teams.jin.sims,99);
     assert.equal(rooms[1].teams.song.soldiers,35);
     assert.equal(rooms[1].combat.players.filter(actor=>actor.kind==='player').length,2);
-    assert.ok(rooms[1].combat.players.some(actor=>actor.kind==='sim'));
+    const sim=rooms[1].combat.players.find(actor=>actor.kind==='sim');
+    assert.ok(sim?.appearance,"SIM has a humanoid appearance");
+    assert.ok(sim.faction);
     const joined=rooms[1];
     const left=await send(cookies[1],'/api/battlefield/shared/leave',{matchId:joined.matchId,participantId:joined.player.id});
     assert.equal(left.json().teams.jin.sims,100);
@@ -342,4 +350,21 @@ test('daily Vietnam schedule includes the final 23:00 round and rolls over at mi
   assert.deepEqual(battlefieldSchedule(at('22:50:00')),{live:null,next:last,registration:true});
   assert.equal(battlefieldSchedule(last).live,last);
   assert.deepEqual(battlefieldSchedule(at('23:30:00')),{live:null,next:first+86400000,registration:false});
+});
+
+test('shared cast enforces the outside-map dismount policy before spending mana',()=>{
+  const {createBattlefieldCombat}=require('../src/server/battlefield-combat.ts');
+  const {nativeScope:s}=createNativeProfileScope(process.cwd());
+  const combat=createBattlefieldCombat(()=>{});
+  const profile=Object.assign(s.I3(),{fac:'wudu',lvl:150,main:'basic'});
+  const stats=combat.statsFor(profile);
+  const source={id:'mounted',kind:'player',team:'song',profile,stats,hp:stats.life,max:stats.life,mana:100,
+    x:680,y:2784,cooldown:0,actionRevision:0,stun:0,r:15,mounted:true};
+  const target={...source,id:'target',team:'jin',x:720,mounted:false};
+  const skill={...stats.basic,id:1066,rad:150,cost:20};
+  assert.equal(combat.cast(source,target,()=>[source,target],skill),false);
+  assert.equal(source.mana,100);
+  source.mounted=false;
+  assert.equal(combat.cast(source,target,()=>[source,target],skill),true);
+  assert.equal(source.mana,80);
 });
