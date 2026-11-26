@@ -221,6 +221,8 @@ body.u2m #modal .mbox{background:var(--w2bg)!important;border:1px solid var(--w2
 body.u2m #modal #mBody>h3:first-child{margin:0 -12px 8px;height:30px;line-height:30px;text-align:center;background:linear-gradient(#55564a,#2a2b24 55%,#1d1e19);border-bottom:1px solid #8c876a;font-size:14px;color:var(--w2tx)}
 body.u2m #modal #mBody>h3:first-child small{font-size:11px;color:#bdb59a}
 body.u2m .tab::before,body.u2m .mbox::before{display:none!important;content:none!important}
+body.u2m .mbox::after{display:none}
+body.u2m #modal .mbox{min-width:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable}
 body.u2m #modal #mBody>h3:first-child{background:linear-gradient(#55564a,#2a2b24 55%,#1d1e19)!important;border:0!important;border-bottom:1px solid #8c876a!important;box-shadow:none!important;color:var(--w2tx)!important;text-shadow:0 1px 2px #000!important;display:block!important;padding:0 36px!important;margin:0 -12px 8px!important;letter-spacing:.5px}
 body.u2m #modal #mBody>h3:first-child small{color:#bdb59a!important;text-shadow:none!important;margin-left:6px}
 body.u2m .tab h3,body.u2m .mbox h3:not(:first-child){background:linear-gradient(90deg,#3a3a2c,transparent)!important;border:0!important;border-left:2px solid #b9974f!important;box-shadow:none!important;color:#e8d49a!important;text-shadow:none!important;padding:2px 6px!important;margin:8px 0 4px!important}
