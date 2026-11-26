@@ -1,7 +1,9 @@
 ﻿import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SimulatorProfile } from '../client/simulator/types.ts';
-import { createBattlefieldRoster } from './battlefield-roster.ts';
+import { battlefieldMatchMs, battlefieldRegistrationMs, battlefieldSchedule } from './battlefield-schedule.ts';
+import { battlefieldTeamCapacity, createBattlefieldRoster } from './battlefield-roster.ts';
+import type { BattlefieldTeam } from './battlefield-roster.ts';
 import { createBattlefieldFight } from './battlefield-fight.ts';
 import { parseBattlefieldMove } from './battlefield-movement.ts';
 import { parseJsonBody, sendJson } from './http.ts';
@@ -15,9 +17,18 @@ function invalid(message: string, status = 400): never {
 }
 
 export function registerSharedBattlefield(
-  app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }, now = Date.now, populate = true,
+  app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string; role?: string }, now = Date.now, populate = true,
 ) {
   const roster = createBattlefieldRoster(now);
+  db.exec(`CREATE TABLE IF NOT EXISTS battlefield_registrations (
+    starts_at INTEGER NOT NULL, account_id TEXT NOT NULL, slot TEXT NOT NULL, team TEXT NOT NULL,
+    name TEXT NOT NULL, PRIMARY KEY(starts_at, account_id)
+  ) STRICT`);
+  type Enrollment = {account_id: string; team: BattlefieldTeam; slot:string; name:string};
+  const enrollment = db.prepare('SELECT * FROM battlefield_registrations WHERE starts_at=? AND account_id=?');
+  const enroll = db.prepare('INSERT INTO battlefield_registrations VALUES (?,?,?,?,?)');
+  const enrolled = db.prepare('SELECT * FROM battlefield_registrations WHERE starts_at=?');
+  const pruneEnrollments = db.prepare('DELETE FROM battlefield_registrations WHERE starts_at<?');
   const inventory = legacyMarketInventory(db);
   db.exec("CREATE TABLE IF NOT EXISTS battlefield_supply_receipts (account_id TEXT NOT NULL, request_id TEXT NOT NULL, signature TEXT NOT NULL, PRIMARY KEY(account_id,request_id)) STRICT");
   const supplyReceipt=db.prepare("SELECT signature FROM battlefield_supply_receipts WHERE account_id=? AND request_id=?");
@@ -46,7 +57,45 @@ export function registerSharedBattlefield(
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
   const select = db.prepare('SELECT value FROM account_storage WHERE account_id=? AND key=?');
-  let current: { id:string; fight:ReturnType<typeof createBattlefieldFight>; time:number; endsAt:number; rosterKey:string; armyAt:number } | undefined;
+  let current: { id:string; fight:ReturnType<typeof createBattlefieldFight>; time:number; endsAt:number; rosterKey:string; armyAt:number; startsAt:number; manual:boolean } | undefined;
+
+  function start(startsAt:number, manual:boolean) {
+    settle();
+    recipients.clear();
+    const room=roster.open(startsAt,battlefieldMatchMs);
+    if (!manual) {
+      pruneEnrollments.run(startsAt);
+      for (const player of enrolled.all(startsAt) as Enrollment[]) roster.join(player.account_id,player.team,player.name);
+    }
+    current={id:room.matchId,startsAt,manual,endsAt:room.endsAt,time:now(),
+      fight:createBattlefieldFight(earn,collect),rosterKey:"",armyAt:0};
+    const live=roster.active();
+    if(live) arrange(live);
+  }
+
+  function ensureScheduled() {
+    const {live}=battlefieldSchedule(now());
+    if(live!==null && current?.startsAt!==live) start(live,false);
+  }
+
+  function teamCounts(room:ReturnType<typeof roster.open>) {
+    const {song,jin}=room.teams;
+    const count=({humans,sims,soldiers}:typeof song)=>({humans,sims,soldiers});
+    return {song:count(song),jin:count(jin)};
+  }
+
+  function availability(id:string) {
+    ensureScheduled();
+    const time=now(), schedule=battlefieldSchedule(time);
+    const room=roster.active();
+    const slotStart=room && !current?.manual ? room.startsAt : schedule.next;
+    const saved=enrollment.get(slotStart,id) as Enrollment | undefined;
+    return {phase:room ? 'active' : schedule.registration ? 'registration' : 'waiting',
+      manual:room ? current?.manual : false, startsAt:room?.startsAt ?? schedule.next,
+      registrationOpen:schedule.registration, nextStart:schedule.next, registrationAt:schedule.next-battlefieldRegistrationMs, endsAt:room?.endsAt ?? null,
+      registration:saved ? {team:saved.team,slot:saved.slot} : null, teams:room ? teamCounts(room) : null,
+      canOpenManual:!room && !schedule.registration && time+battlefieldMatchMs<=schedule.next};
+  }
   function advance(endsAt: number) {
     if (!current) return;
     const deadline=Math.min(now(),endsAt);
@@ -80,22 +129,22 @@ export function registerSharedBattlefield(
     arrange(room);
     if (!current) return invalid("Trận đấu đã kết thúc.",409);
     return { matchId:room.matchId, startsAt:room.startsAt, endsAt:room.endsAt, serverTime:room.serverTime,
-      finished:room.finished, player:room.player, teams:Object.fromEntries(Object.entries(room.teams).map(([team,side])=>
-        [team,{humans:side.humans,sims:side.sims,soldiers:side.soldiers}])),
+      finished:room.finished, player:room.player, teams:teamCounts(room),
       combat:current.fight.snapshot(room.player?.id) };
   }
 
   if (now === Date.now) {
     let lastFault=-Infinity;
     const timer=setInterval(()=>{
-      if (!current || current.time >= current.endsAt-1) return;
       try {
-        advance(current.endsAt);
+        ensureScheduled();
+        if (!current) return;
+        if (now()<current.endsAt || current.time<current.endsAt-stepSeconds*1000) advance(current.endsAt);
         if (now()>=nextSettlement) {
           nextSettlement=now()+1000;
           try { settle(); } catch(error) { console.error("Không ghi được quân trạng Tống Kim",error); }
         }
-        if (current.time>=current.armyAt) {
+        if (now()<current.endsAt && current.time>=current.armyAt) {
           const room=roster.active();
           if (room) arrange(room);
         }
@@ -109,7 +158,19 @@ export function registerSharedBattlefield(
     app.addHook("onClose",async()=>{clearInterval(timer);settle();});
   }
 
-  app.post('/api/battlefield/shared/join', (request,reply) => {
+  app.post('/api/battlefield/shared/status', (request,reply) => {
+    return sendJson(reply,200,availability(requireUser(request).id));
+  });
+
+  app.post('/api/battlefield/shared/manual', (request,reply) => {
+    const {id,role}=requireUser(request);
+    if(role!=='gm' && role!=='admin') return invalid('Chỉ GM được mở trận chung thủ công.',403);
+    if(!availability(id).canOpenManual) return invalid('Đang có trận hoặc sắp đến giờ báo danh.',409);
+    start(now(),true);
+    return sendJson(reply,200,availability(id));
+  });
+
+  function participate(request:FastifyRequest,reply:import('fastify').FastifyReply, registering:boolean) {
     const { id } = requireUser(request);
     const { team, slot } = command(request);
     if ((team !== 'song' && team !== 'jin') || typeof slot !== 'string' || !slots.has(slot)) {
@@ -127,13 +188,28 @@ export function registerSharedBattlefield(
       return invalid('Hãy lưu nhân vật trước khi vào Tống Kim.',409);
     }
     character.name=character.name.trim().slice(0,48);
+    ensureScheduled();
+    if(registering){
+      const schedule=battlefieldSchedule(now());
+      if(!schedule.registration) return invalid('Chưa đến giờ báo danh Tống Kim.',409);
+      const previous=enrollment.get(schedule.next,id) as Enrollment | undefined;
+      if(previous){
+        if(previous.team!==team || previous.slot!==slot) return invalid('Bạn đã báo danh bằng nhân vật hoặc phe khác.',409);
+      } else {
+        const count=(enrolled.all(schedule.next) as Enrollment[]).filter(entry=>entry.team===team).length;
+        if(count>=battlefieldTeamCapacity) return invalid('Phe này đã đủ 100 người báo danh.',409);
+        enroll.run(schedule.next,id,slot,team,character.name);
+      }
+      return sendJson(reply,200,availability(id));
+    }
+    if(!current || !roster.active()) return invalid('Trận chung chưa mở. Hãy báo danh tại Chiêu Mộ Sứ.',409);
+    if(!current.manual){
+      const entry=enrollment.get(current.startsAt,id) as Enrollment | undefined;
+      if(entry?.team!==team || entry.slot!==slot) return invalid('Hãy vào trận bằng đúng nhân vật và phe đã báo danh.',409);
+    }
     const room = roster.join(id,team,character.name);
     if (!room.player) return invalid('Không lấy được suất tham chiến.',409);
     try {
-      if (room.matchId !== current?.id) {
-        settle();recipients.clear();
-        current = { id:room.matchId, fight:createBattlefieldFight(earn,collect), time:now(), endsAt:room.endsAt, rosterKey:"", armyAt:0 };
-      }
       current.fight.join(room.player.id,team,character,id+":"+slot);
       if(!recipients.has(room.player.id)) recipients.set(room.player.id,{accountId:id,slot:slot as CharacterSlot,pending:0,goods:{}});
     } catch (error) {
@@ -141,7 +217,10 @@ export function registerSharedBattlefield(
       throw error;
     }
     return sendJson(reply,200,output(room));
-  });
+  }
+
+  app.post('/api/battlefield/shared/register', (request,reply) => participate(request,reply,true));
+  app.post('/api/battlefield/shared/join', (request,reply) => participate(request,reply,false));
 
   app.post('/api/battlefield/shared/sync', (request,reply) => {
     const { id } = requireUser(request);

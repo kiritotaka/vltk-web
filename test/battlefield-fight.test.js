@@ -69,6 +69,21 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
       })});
       assert.equal(saved.statusCode,200,saved.body);
     }
+    time=Date.parse('2026-11-26T07:49:59+07:00');
+    assert.equal((await post(blue,'register',{team:'song',slot:'jxidle'})).statusCode,409);
+    time+=1000;
+    assert.equal((await post(blue,'join',{team:'song',slot:'jxidle'})).statusCode,409);
+    assert.equal((await post(blue,'register',{team:'song',slot:'jxidle'})).statusCode,200);
+    assert.equal((await post(blue,'register',{team:'song',slot:'jxidle'})).statusCode,200);
+    assert.equal((await post(blue,'register',{team:'jin',slot:'jxidle'})).statusCode,409);
+    assert.equal((await post(red,'register',{team:'jin',slot:'jxidle'})).statusCode,200);
+    time=Date.parse('2026-11-26T08:00:00+07:00');
+    const status=(await post(blue,'status',{})).json();
+    assert.equal(status.startsAt,time);
+    assert.equal(status.endsAt,time+30*60_000);
+    assert.equal(status.teams.song.humans,1);
+    assert.equal(status.teams.song.sims,99);
+    assert.equal(status.teams.song.soldiers,35);
     const a=await post(blue,'join',{team:'song',slot:'jxidle'}), b=await post(red,'join',{team:'jin',slot:'jxidle'});
     assert.equal(a.statusCode,200,a.body);assert.equal(b.statusCode,200,b.body);
     const aRoom=a.json(), bRoom=b.json();
@@ -125,16 +140,20 @@ test('shared battle AI fills both sides and keeps the 35 NPCs during player repl
   assert.equal(count('song','sim'),100);assert.equal(count('song','npc'),35);
 });
 
-test('normal Fastify server runs the shared room with live troop slots',async()=>{
+test('normal Fastify server runs the shared room with live troop slots',async(t)=>{
   const {createServer}=require('../src/server/index.ts');
   const {openDatabase}=require('../src/server/database.ts');
   const {accountCookie}=require('./helpers/accounts.js');
   const {nativeScope}=createNativeProfileScope(process.cwd());
-  const db=openDatabase(':memory:');
+  t.mock.method(Date,'now',()=>Date.parse('2026-11-26T06:00:00+07:00'));
+ const db=openDatabase(':memory:');
   const {app}=createServer({db,downloadAssets:false});
   const send=(cookie,url,data)=>app.inject({url,headers:{cookie},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
   try {
     const cookies=[await accountCookie(app,'live_tong'),await accountCookie(app,'live_kim')];
+    assert.equal((await send(cookies[0],'/api/battlefield/shared/manual',{})).statusCode,403);
+    db.prepare("UPDATE accounts SET role='gm' WHERE username=?").run('live_tong');
+    assert.equal((await send(cookies[0],'/api/battlefield/shared/manual',{})).statusCode,200);
     const rooms=[];
     for(const [index,cookie] of cookies.entries()) {
       const saved=await send(cookie,'/api/storage');
@@ -181,14 +200,18 @@ test('shared NPC loot belongs to its team and one drop can only be collected onc
   assert.equal(fight.snapshot('looter').drops.length,0);
 });
 
-test('shared quartermaster prices, supplies and traps use a single durable receipt',async()=>{
+test('shared quartermaster prices, supplies and traps use a single durable receipt',async(t)=>{
  const {createServer}=require('../src/server/index.ts');
  const {openDatabase}=require('../src/server/database.ts');
  const {accountCookie}=require('./helpers/accounts.js');
  const {nativeScope}=createNativeProfileScope(process.cwd());
- const db=openDatabase(':memory:');const {app}=createServer({db,downloadAssets:false});
+ t.mock.method(Date,'now',()=>Date.parse('2026-11-26T06:00:00+07:00'));
+ const db=openDatabase(':memory:'); const {app}=createServer({db,downloadAssets:false});
  try {
   const cookie=await accountCookie(app,'supply_tong');
+  db.prepare("UPDATE accounts SET role='gm' WHERE username=?").run('supply_tong');
+  const open=await app.inject({method:'POST',url:'/api/battlefield/shared/manual',headers:{cookie},payload:{}});
+  assert.equal(open.statusCode,200,open.body);
   const other=await accountCookie(app,'supply_kim');
   const send=(url,data,session=cookie)=>app.inject({url,headers:{cookie:session},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
   const start=(await send('/api/storage')).json();
@@ -242,14 +265,18 @@ test('server trap only affects an opposing actor and quartermaster rejects dista
  assert.throws(()=>fight.supply('A','buy','resistance',1,()=>assert.fail('purchase should not settle')),/Quan Quân Nhu/);
 });
 
-test('shared pharmacy buys and consumes potions once and persists only the gold debit',async()=>{
+test('shared pharmacy buys and consumes potions once and persists only the gold debit',async(t)=>{
  const {createServer}=require('../src/server/index.ts');
  const {openDatabase}=require('../src/server/database.ts');
  const {accountCookie}=require('./helpers/accounts.js');
  const {nativeScope}=createNativeProfileScope(process.cwd());
+ t.mock.method(Date,'now',()=>Date.parse('2026-11-26T06:00:00+07:00'));
  const db=openDatabase(':memory:');const {app}=createServer({db,downloadAssets:false});
  try {
   const cookie=await accountCookie(app,'pharmacy_tong');
+  db.prepare("UPDATE accounts SET role='gm' WHERE username=?").run('pharmacy_tong');
+  const open=await app.inject({method:'POST',url:'/api/battlefield/shared/manual',headers:{cookie},payload:{}});
+  assert.equal(open.statusCode,200,open.body);
   const other=await accountCookie(app,'pharmacy_kim');
   const send=(url,data,session=cookie)=>app.inject({url,headers:{cookie:session},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
   const initial=(await send('/api/storage')).json();
@@ -295,4 +322,17 @@ test('shared pharmacy buys and consumes potions once and persists only the gold 
   const updates=await send('/api/market/character-updates?generation='+encodeURIComponent(savedBefore.generation));
   assert.deepEqual(updates.json().changes,[{slot:'jxidle',unit:'gold',delta:-5}]);
  } finally { await app.close();db.close(); }
+});
+
+test('daily Vietnam schedule includes the final 23:00 round and rolls over at midnight',()=>{
+  const {battlefieldSchedule}=require('../src/server/battlefield-schedule.ts');
+  const at=(time)=>Date.parse('2026-11-26T'+time+'+07:00');
+  const first=at('08:00:00'),last=at('23:00:00');
+  assert.deepEqual(battlefieldSchedule(at('07:49:59')),{live:null,next:first,registration:false});
+  assert.deepEqual(battlefieldSchedule(at('07:50:00')),{live:null,next:first,registration:true});
+  assert.equal(battlefieldSchedule(first).live,first);
+  assert.equal(battlefieldSchedule(at('08:30:00')).live,null);
+  assert.deepEqual(battlefieldSchedule(at('22:50:00')),{live:null,next:last,registration:true});
+  assert.equal(battlefieldSchedule(last).live,last);
+  assert.deepEqual(battlefieldSchedule(at('23:30:00')),{live:null,next:first+86400000,registration:false});
 });

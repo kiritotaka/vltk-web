@@ -67,15 +67,21 @@ export function createBattlefieldRoster(now = Date.now) {
     };
   }
 
+  function open(startsAt: number, duration = battleDurationMs) {
+    match = {
+      id: randomUUID(), startsAt, endsAt: startsAt + duration, players: new Map(),
+      seats: { song: new Array(battlefieldTeamCapacity), jin: new Array(battlefieldTeamCapacity) },
+    };
+    return snapshot(match, now());
+  }
+
   function join(accountId: string, team: BattlefieldTeam, name = "") {
     const timestamp = now();
     if (team !== 'song' && team !== 'jin') throw Object.assign(new Error('Phe không hợp lệ.'), { status: 400 });
     if (!match || timestamp >= match.endsAt) {
-      match = {
-        id: randomUUID(), startsAt: timestamp, endsAt: timestamp + battleDurationMs, players: new Map(),
-        seats: { song: new Array(battlefieldTeamCapacity), jin: new Array(battlefieldTeamCapacity) },
-      };
+      open(timestamp);
     }
+    if (!match) return conflict('Trận Tống Kim chưa mở.');
     refresh(match, timestamp);
     const previous = match.players.get(accountId);
     if (previous) {
@@ -126,5 +132,5 @@ export function createBattlefieldRoster(now = Date.now) {
     refresh(match,timestamp);
     return snapshot(match,timestamp);
   }
-  return { join, sync, leave, active };
+  return { open, join, sync, leave, active };
 }

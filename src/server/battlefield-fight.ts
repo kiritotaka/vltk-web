@@ -1,4 +1,5 @@
-﻿import { createBattlefieldCombat } from './battlefield-combat.ts';
+﻿import { battlefieldMatchMs } from './battlefield-schedule.ts';
+import { createBattlefieldCombat } from './battlefield-combat.ts';
 import type { SharedCombatant, SharedPharmacy, SharedPotion, PotionResource } from './battlefield-combat.ts';
 import { readFileSync } from 'node:fs';
 import { advanceBattlefieldPosition, battlefieldSpawn } from './battlefield-movement.ts';
@@ -45,7 +46,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
   const dirty=new Set<Player>();
   let visualId=0;
-  const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;melee:boolean;until:number}>=[];
+  const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;level:number;missiles:number;rad:number;geo:SharedCombatant["stats"]["main"]["geo"];secondary:boolean;element:string;target:string;melee:boolean;until:number}>=[];
   const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
@@ -163,7 +164,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
           }
         }
       }
-      if (time >= 600 && !players.has(team+"-marshal")) {
+      if (time >= battlefieldMatchMs/2000 && !players.has(team+"-marshal")) {
         const profile = computerProfile(team === "song" ? "gaibang" : "emei");
         add(team+"-marshal",team,{...profile.profile,name:"Nguyên soái"},{...profile.stats,life:200000},"marshal",layout.marshals[team],1000,599);
       }
@@ -246,7 +247,9 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
         cast = combat.cast(player,target,actors,skill,()=>{
           if (visuals.length>=192)visuals.shift();
           visuals.push({id:++visualId,actor:player.id,x:player.x,y:player.y,tx:target.x,ty:target.y,
-            skill:Number(skill.id)||0,melee:skill.melee!==false,until:time+1});
+            skill:Number(skill.id)||0,level:skill.L||1,missiles:skill.nMis||0,rad:skill.rad,geo:skill.geo,secondary:!!skill.ev,
+            element:Object.entries(skill.parts).reduce((best,[key,value])=>value>(skill.parts[best]||0)?key:best,"phys"),
+            target:target.id,melee:skill.melee!==false,until:time+1});
         });
         if (cast) player.casts++;
       }
@@ -442,9 +445,15 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   function snapshot(viewerId?:string) {
     const viewer = viewerId ? players.get(viewerId) : undefined;
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
+    const personal = [], nearby = [];
+    if(viewer) for(const event of visuals){
+      if(event.until<=time)continue;
+      if(event.actor===viewer.id || event.target===viewer.id)personal.push(event);
+      else if(Math.abs(event.x-viewer.x)<950 && Math.abs(event.y-viewer.y)<650)nearby.push(event);
+    }
     return {
       score:{...score},
-      visuals:viewer ? visuals.filter(event=>event.until>time && Math.abs(event.x-viewer.x)<950 && Math.abs(event.y-viewer.y)<650).slice(-32) : [],
+      visuals:personal.concat(nearby.slice(-32)),
       potionSlots:viewer?.kind==="player" ? {life:pharmacyFor(viewer).model.slot("life"),mana:pharmacyFor(viewer).model.slot("mana")} : null,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)

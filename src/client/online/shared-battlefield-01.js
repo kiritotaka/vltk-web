@@ -199,16 +199,27 @@ var sharedBattlefield = (() => {
       l.enemies=[...entities.values()];
     }
     const latestVisual=session.visualId||0;
-    for(const event of state.combat.visuals || []){
-      if(event.id<=latestVisual)continue;
+    const fresh=(state.combat.visuals||[]).filter(event=>event.id>latestVisual);
+    const personal=event=>event.actor===me.id || event.target===me.id;
+    const nearby=fresh.filter(event=>!personal(event)).slice(-24);
+    for(const event of [...fresh.filter(personal),...nearby]){
       session.visualId=Math.max(session.visualId||0,event.id);
-      const from=event.actor===me.id?v:entities.get(event.actor)||{x:event.x,y:event.y};
-      const end={x:event.tx,y:event.ty};
-      const before=l.fx.length;
-      if(typeof G3==="function" && !o.lowFx){
-        try { G3(from,end,{id:event.skill,melee:event.melee,parts:{phys:1},nMis:1}); } catch { /* Fall back to a lightweight effect. */ }
+      const caster=event.actor===me.id?v:entities.get(event.actor);
+      const from={x:event.x??caster?.x,y:event.y??caster?.y};
+      const end={x:event.tx,y:event.ty,hp:1,r:16};
+      if(!Number.isFinite(from.x)||!Number.isFinite(from.y)||l.fx.length>=(personal(event)?140:96))continue;
+      if(caster){
+        caster.face=end.x<from.x?-1:1;caster.dir=kn(end.x-from.x,end.y-from.y);
+        caster.act="at";caster.actT=0;
       }
-      if(l.fx.length===before){
+      if(event.skill && typeof queueSkillContact==="function" && (!o.lowFx || event.actor===me.id || event.target===me.id)){
+        const skill={id:event.skill,L:event.level,nMis:event.missiles,rad:event.rad,melee:event.melee,
+          visualAnchor:{x:end.x,y:end.y-14},ox:from.x,oy:from.y,parts:{[event.element||"phys"]:1},
+          geo:event.geo,ev:event.secondary,tot:1};
+        if(typeof arenaSimulator!=="undefined" && arenaSimulator?.replayBattlefieldSkill)
+          arenaSimulator.replayBattlefieldSkill({...from,hp:1,face:end.x<from.x?-1:1},end,skill);
+        else queueSkillContact(from,end,skill,()=>{}, {windup:0,targets:()=>[end]});
+      } else {
         const color=event.actor===me.id||entities.get(event.actor)?.battlefieldTeam===session.state.player.team?"#ffd06e":"#c77bff";
         l.fx.push(event.melee ? {k:"ring",x:end.x,y:end.y,color,life:.24,max:.24,r:18} :
           {k:"line",x1:from.x,y1:from.y-16,x2:end.x,y2:end.y-14,color,life:.23,max:.23});
@@ -253,14 +264,15 @@ var sharedBattlefield = (() => {
     await window.localGameStorage?.syncMarket?.();
   }
 
-  async function join(team) {
+  async function join(team, action='join') {
     if (pending || session) return;
     pending=true;
     try {
       $();
       await window.localGameStorage?.flush();
       if (window.localGameStorage?.pending) throw new Error('Hãy đợi lưu nhân vật xong rồi thử lại.');
-      const state=await request('join',{team,slot:y8()});
+      const state=await request(action,{team,slot:y8()});
+      if(action==='register')return state;
       n0(true);
       enter(state);
     } catch(error) {
@@ -273,15 +285,52 @@ var sharedBattlefield = (() => {
   function open() {
     if (session) { ranking(); return; }
     const role=window.localGameAuth?.user?.role;
-    J('<h3>Chiêu Mộ Sứ · Tống Kim</h3><p>Hoang Nguyên · 20 phút</p><div class="btnrow">'+
-      '<button class="btn" id="shared-war-song" type="button">Vào phe Tống</button>'+
-      '<button class="btn" id="shared-war-jin" type="button">Vào phe Kim</button>'+
-      (role==='gm'||role==='admin'?'<button class="btn" id="shared-war-practice" type="button">Trận thử</button>':'')+
-      '</div><p id="shared-war-status" role="status"></p>',()=>{
-        m('#shared-war-song').onclick=()=>void join('song');
-        m('#shared-war-jin').onclick=()=>void join('jin');
-        const practice=m('#shared-war-practice');
-        if(practice) practice.onclick=()=>{n0(true);arenaSimulator.openSettings();};
+    const format=timestamp=>new Date(timestamp).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Ho_Chi_Minh'});
+    J('<h3>Chiêu Mộ Sứ · Tống Kim</h3><p>Hoang Nguyên · 30 phút</p><div class="btnrow">'+
+      '<button class="btn" id="shared-war-song" type="button" disabled>Phe Tống</button>'+
+      '<button class="btn" id="shared-war-jin" type="button" disabled>Phe Kim</button>'+
+      (role==='gm'||role==='admin'?'<button class="btn" id="shared-war-manual" type="button" disabled>Mở trận chung</button>':'')+
+      '</div><p id="shared-war-status" role="status">Đang xem lịch Tống Kim…</p>',()=>{
+        const status=m('#shared-war-status'),manual=m('#shared-war-manual');
+        const buttons={song:m('#shared-war-song'),jin:m('#shared-war-jin')};
+        let ready=false, registered=false;
+        function show(state) {
+          const entering=state.phase==='active' && (!state.manual || !state.registrationOpen);
+          const registering=!entering && state.registrationOpen;
+          const booking=state.registration;
+          const candidate=booking?.slot===y8() ? booking.team : null;
+          const teamName=booking?.team==='song'?'Tống':'Kim';
+          status.textContent=entering ? (state.manual || candidate ? 'Trận đang diễn ra đến '+format(state.endsAt)+'.' :
+            'Trận đang diễn ra. Lượt báo danh tiếp theo lúc '+format(state.registrationAt)+'.') :
+            registering ? (booking ? 'Đã báo danh phe '+teamName+'. Trận mở lúc ' : 'Đang báo danh. Trận mở lúc ')+format(state.nextStart)+'.' :
+            'Báo danh lúc '+format(state.registrationAt)+'. Trận mở lúc '+format(state.nextStart)+'.';
+          if(manual) manual.disabled=!state.canOpenManual;
+          for(const [team,button] of Object.entries(buttons)){
+            const name=team==='song'?'Tống':'Kim';
+            button.textContent=(registering?'Báo danh phe ':entering?'Vào phe ':'Phe ')+name;
+            button.disabled=registering ? !!booking : !entering || (!state.manual && team!==candidate);
+            button.onclick=async()=>{
+              const updated=await join(team,registering?'register':'join');
+              if(updated){ready=true;show(updated);}
+            };
+          }
+          if(entering && ready && candidate && !registered){
+            registered=true;
+            void join(candidate);
+          }
+        }
+        if(manual) manual.onclick=async()=>{
+          manual.disabled=true;
+          try { show(await request('manual',{})); }
+          catch(error){ status.textContent=error.message; }
+        };
+        async function update(){
+          if(session || m('#shared-war-status')!==status)return;
+          try { const state=await request('status',{}); if(m('#shared-war-status')===status && !pending)show(state); }
+          catch(error){status.textContent=error.message;}
+          if(!session && m('#shared-war-status')===status) setTimeout(update,2000);
+        }
+        void update();
       });
   }
 
@@ -343,6 +392,7 @@ var sharedBattlefield = (() => {
     const current=session;
     if (!current?.position) return;
     l.clock=(l.clock||0)+dt;
+    if(typeof advanceSkillContacts==="function" && (l.fx.length || l.combatProjectiles.length || l.fxQ.length)) advanceSkillContacts(dt);
     const mix=Math.min(1,dt*12);
     const [inputX,inputY]=Qv();
     const manualMove = inputX || inputY;
