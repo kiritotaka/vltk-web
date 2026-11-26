@@ -31,8 +31,8 @@ export function parseBattlefieldMove(input: unknown): BattlefieldMove | undefine
 }
 
 /** Accept direction only. Position, distance budget and map collision stay on the server. */
-export function advanceBattlefieldPosition(position: Point, direction: BattlefieldMove, durationMs: number): Point {
-  const distance = baseSpeed * Math.max(0, Math.min(250, durationMs)) / 1000;
+export function advanceBattlefieldPosition(position: Point, direction: BattlefieldMove, durationMs: number, speedMultiplier=1): Point {
+  const distance = baseSpeed * speedMultiplier * Math.max(0, Math.min(250, durationMs)) / 1000;
   const scale = distance / Math.max(1, Math.hypot(direction.x, direction.y));
   const x = position.x + direction.x * scale;
   const y = position.y + direction.y * scale;

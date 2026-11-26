@@ -172,6 +172,7 @@ var t1 = function (A) {
 };
 
 var $ = function () {
+  if (typeof sharedBattlefield !== "undefined" && sharedBattlefield.active) return;
   if (!(HA || !o || !o.fac)) {
     ((o.last = Date.now()), typeof T6 == "function" && l.ground && T6());
     try {

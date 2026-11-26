@@ -184,7 +184,7 @@ var NP = function (A) {
         v.x,
         x,
         `${o.name || (I[o.fac] && I[o.fac].n) || ""}${o.name && typeof Rh == "function" ? Rh(o.name) : ""}${hf({ slowT: l.slowT, poison: l.hpDotT, stun: l.stunT })}`,
-        l.battlefield && typeof arenaSimulator !== "undefined" && arenaSimulator ? (arenaSimulator.battlefield.state.team === "song" ? "#ffcc00" : "#c77bff") : typeof o2 == "function" ? o2(o.name, o.fac) : Ps.hero,
+        l.battlefield && typeof arenaSimulator !== "undefined" && arenaSimulator ? (((typeof sharedBattlefield !== "undefined" && sharedBattlefield.team) || arenaSimulator.battlefield.team) === "song" ? "#ffcc00" : "#c77bff") : typeof o2 == "function" ? o2(o.name, o.fac) : Ps.hero,
         12,
         l.life / Math.max(1, l.P.life),
         "#4fd04f",
@@ -264,7 +264,7 @@ var NP = function (A) {
       a.cls === "boss" ? 12 : 11,
       a.hp / a.max,
       a.battlefieldTeam && typeof arenaSimulator !== "undefined" && arenaSimulator
-        ? arenaSimulator.battlefieldHealthColor(a.battlefieldTeam, arenaSimulator.battlefield.state.team)
+        ? arenaSimulator.battlefieldHealthColor(a.battlefieldTeam, (typeof sharedBattlefield !== "undefined" && sharedBattlefield.team) || arenaSimulator.battlefield.team)
         : a.cls === "boss" ? "#ff5030" : "#e03a2a",
       a.battlefieldRank ? `<${a.battlefieldRank}>` : void 0,
       a.battlefieldRank && typeof arenaSimulator !== "undefined" && arenaSimulator ? arenaSimulator.battlefieldTitleColor(a.battlefieldRank) : void 0,

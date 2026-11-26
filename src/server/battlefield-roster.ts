@@ -101,12 +101,12 @@ export function createBattlefieldRoster(now = Date.now) {
     return { current: match, player, timestamp };
   }
 
-  function sync(accountId: string, matchId: string, participantId: string, movement?: BattlefieldMove) {
+  function sync(accountId: string, matchId: string, participantId: string, movement?: BattlefieldMove, applyMove = advanceBattlefieldPosition) {
     const { current, player, timestamp } = membership(accountId, matchId, participantId);
     if (timestamp < current.endsAt) {
       player.expiresAt = timestamp + reservationMs;
       if (movement && movement.sequence > player.sequence) {
-        player.position = advanceBattlefieldPosition(player.position, movement, timestamp - player.lastMoveAt);
+        player.position = applyMove(player.position, movement, timestamp - player.lastMoveAt);
         player.lastMoveAt = timestamp;
         player.sequence = movement.sequence;
       }
@@ -120,5 +120,11 @@ export function createBattlefieldRoster(now = Date.now) {
     return snapshot(current, timestamp);
   }
 
-  return { join, sync, leave };
+  function active() {
+    const timestamp = now();
+    if (!match || timestamp >= match.endsAt) return null;
+    refresh(match,timestamp);
+    return snapshot(match,timestamp);
+  }
+  return { join, sync, leave, active, reset:()=>{match=undefined;} };
 }

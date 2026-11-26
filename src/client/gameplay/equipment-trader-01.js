@@ -312,7 +312,8 @@ var equipmentTrader = (function () {
       },
       horse: () => { if (typeof horseTrader !== 'undefined' && horseTrader) horseTrader.open(); },
       tongkim: () => {
-        if (typeof arenaSimulator !== 'undefined' && arenaSimulator) arenaSimulator.openSettings();
+        if (typeof sharedBattlefield !== 'undefined' && window.localGameAuth?.user) sharedBattlefield.open();
+        else if (typeof arenaSimulator !== 'undefined' && arenaSimulator) arenaSimulator.openSettings();
         else k('Mở phòng Tống Kim để cài đặt trận đấu.');
       },
     };

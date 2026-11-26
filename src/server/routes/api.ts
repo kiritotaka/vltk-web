@@ -4,6 +4,7 @@ import { registerAccounts } from '../accounts.ts';
 import { registerLocalChat } from '../chat.ts';
 import { registerMarket } from '../market.ts';
 import { registerBattlefieldRoster } from '../battlefield-roster-routes.ts';
+import { registerSharedBattlefield } from '../battlefield-shared-routes.ts';
 import { parseJsonBody, sendJson } from '../http.ts';
 import type { ServerServices } from '../types.ts';
 
@@ -17,6 +18,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ServerServices
   registerLocalChat(app, db, storage.requireUser);
   registerMarket(app, db, storage.requireUser);
   registerBattlefieldRoster(app, db, storage.requireUser);
+  registerSharedBattlefield(app, db, storage.requireUser);
   app.get('/api/config', (_request, reply) => sendJson(reply, 200,
     { development, instanceId, version, ...(development && combatSandbox ? { combatSandbox: true } : {}) }));
   app.get('/api/health', (_request, reply) => sendJson(reply, 200, { ok: true, database: 'sqlite', mode: 'local' }));

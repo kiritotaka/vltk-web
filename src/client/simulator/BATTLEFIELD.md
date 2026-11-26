@@ -1,5 +1,11 @@
 # Tống Kim · Hoang Nguyên
 
+Chiêu Mộ Sứ mở trận chung Hoang Nguyên trên máy chủ. Mỗi phe dành 100 suất cho người chơi và SIM, cộng 35 lính NPC. SIM nhường suất cho người thật, và máy chủ thu hồi suất sau 30 giây mất kết nối. Trận kéo dài 20 phút. Người chơi trở về doanh trại ngay khi bị hạ. Bảng điểm trong trận do máy chủ gửi cho các phiên tham chiến.
+
+Trận chung sử dụng kỹ năng tấn công và trang bị từ save khi vào trận. Vật phẩm tiếp tế, bẫy và quân trạng tích lũy hiện có trong trận thử. GM/Admin có thể mở trận thử từ Chiêu Mộ Sứ để cấu hình đội hình.
+
+## Trận thử
+
 Tống Kim hoạt động trong cả production và development. Đặt NPC `tongkim` (**Chiêu Mộ Sứ**) trên bất kỳ bản đồ nào rồi bấm NPC để mở menu và tham gia chiến trường; không cần Arena Test hay `COMBAT_SANDBOX`. Rời trận trả về bản đồ, vị trí và HP/MP trước khi tham gia. `npm run dev:arena` vẫn cung cấp riêng công cụ test SIM và NPC gần nhân vật. Bảng cài đặt chia sáu tab: Tham gia chiến trường, Trận đấu, Quân SIM, Quái vật, Tuần tra & chiêu, Bảng xếp hạng. Chọn phe người chơi, hệ boss hai bên và bắt đầu. Thêm quân đồng thời cho cả hai phe bằng tỉ lệ % của 10 môn phái (tổng 100% mỗi phe), level 1–200, sức mạnh và tổng số lượng. Tổng 40 SIM tạo 20 Tống và 20 Kim; tổng phải chẵn. Ô chọn phe chỉ đổi bộ tỉ lệ đang chỉnh. Phân bổ theo phần dư lớn nhất để giữ đúng tổng quân, có xem trước số lượng. Mỗi phe giữ tỉ lệ riêng. Giao diện tạo lần lượt và hiển thị tiến độ để tránh khóa màn hình. Mỗi lần thêm 2–200 SIM tổng hai phe (1–100 mỗi phe), tối đa 500 SIM trên sân. Hai phe được tạo xen kẽ.
 
 - Trận chạy 20 phút theo thời gian mô phỏng. Boss có mặt ngay từ đầu. Hạ một boss không kết thúc sớm. Hết giờ, cộng quân trạng thực nhận của người chơi và toàn bộ SIM theo phe: phe cao điểm hơn thắng, bằng điểm thì hòa, không xét số boss còn sống. Điểm đội không mất khi SIM chết hoặc bị xóa. Hộp kết quả giữa màn hình hiện tổng điểm hai phe; chỉ nút Đồng ý đưa người chơi rời chiến trường, Esc và nền không đóng được hộp.
