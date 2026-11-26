@@ -180,3 +180,64 @@ test('shared NPC loot belongs to its team and one drop can only be collected onc
   assert.deepEqual(delivered,[['looter','resistance']]);
   assert.equal(fight.snapshot('looter').drops.length,0);
 });
+
+test('shared quartermaster prices, supplies and traps use a single durable receipt',async()=>{
+ const {createServer}=require('../src/server/index.ts');
+ const {openDatabase}=require('../src/server/database.ts');
+ const {accountCookie}=require('./helpers/accounts.js');
+ const {nativeScope}=createNativeProfileScope(process.cwd());
+ const db=openDatabase(':memory:');const {app}=createServer({db,downloadAssets:false});
+ try {
+  const cookie=await accountCookie(app,'supply_tong');
+  const other=await accountCookie(app,'supply_kim');
+  const send=(url,data,session=cookie)=>app.inject({url,headers:{cookie:session},...(data?{method:'POST',payload:JSON.stringify(data)}:{})});
+  const start=(await send('/api/storage')).json();
+  const profile=Object.assign(nativeScope.I3(),{name:'Supply test',fac:'wudang',lvl:100,main:'basic'});
+  profile.mats.misc={tk_merit:3000,tk_life:1,tk_stunTrap:1};
+  assert.equal((await send('/api/storage',{generation:start.generation,id:'supply-save',operations:[{key:'jxidle',value:JSON.stringify(profile)}]})).statusCode,200);
+  const joined=(await send('/api/battlefield/shared/join',{team:'song',slot:'jxidle'})).json();
+  const ref={matchId:joined.matchId,participantId:joined.player.id};
+  const action=(data,session)=>send('/api/battlefield/shared/supplies',{...ref,...data},session);
+  assert.equal((await action({},other)).statusCode,409);
+  assert.equal((await action({})).json().nearShop,true);
+  const buy={action:'buy',kind:'resistance',quantity:10,requestId:'buy-10'};
+  db.exec("CREATE TEMP TRIGGER fail_supply BEFORE INSERT ON battlefield_supply_receipts BEGIN SELECT RAISE(ABORT,'forced rollback'); END");
+  assert.equal((await action(buy)).statusCode,409);
+  assert.equal(JSON.parse((await send('/api/storage')).json().entries.jxidle).mats.misc.tk_merit,3000);
+  db.exec('DROP TRIGGER fail_supply');
+  assert.equal((await action(buy)).statusCode,200);
+  assert.equal((await action(buy)).json().merit,1500);
+  assert.equal((await action({...buy,quantity:1})).statusCode,409);
+  const life={action:'use',kind:'life',quantity:1,requestId:'use-life'};
+  assert.equal((await action(life)).statusCode,200);
+  assert.equal((await action(life)).statusCode,200);
+  assert.equal((await action({...life,requestId:'use-life-new'})).statusCode,409);
+  const trap={action:'use',kind:'stunTrap',quantity:1,requestId:'set-trap'};
+  assert.equal((await action(trap)).statusCode,200);
+  const updated=(await send('/api/battlefield/shared/sync',ref)).json();
+  const player=updated.combat.players.find(actor=>actor.id===ref.participantId);
+  assert.equal(player.max,joined.combat.players.find(actor=>actor.id===ref.participantId).max+500);
+  assert.equal(updated.combat.traps.length,1);
+  const saved=JSON.parse((await send('/api/storage')).json().entries.jxidle).mats.misc;
+  assert.deepEqual(saved,{tk_merit:1500,tk_life:0,tk_stunTrap:0,tk_resistance:10});
+ } finally {await app.close();db.close();}
+});
+
+test('server trap only affects an opposing actor and quartermaster rejects distant purchases',()=>{
+ const {nativeScope}=createNativeProfileScope(process.cwd());
+ const fight=createBattlefieldFight();
+ const profile=name=>Object.assign(nativeScope.I3(),{name,fac:'wudang',lvl:100,main:'basic'});
+ const a=profile('A');a.mats.misc={tk_stunTrap:1,tk_merit:20000};
+ fight.join('A','song',a);fight.join('enemy','jin',profile('Enemy'));fight.join('ally','song',profile('Ally'));
+ fight.move('A',690,2784);
+ fight.move('enemy',720,2784);
+ fight.move('ally',710,2784);
+ fight.supply('A','use','stunTrap',1,()=>{});
+ for(let step=0;step<4;step++)fight.tick(1/30);
+ const snapshot=fight.snapshot('A');
+ assert.equal(snapshot.traps.length,0);
+ assert.equal(snapshot.players.find(actor=>actor.id==='enemy').stun,true);
+ assert.equal(snapshot.players.find(actor=>actor.id==='ally').stun,false);
+ fight.move('A',1200,2200);
+ assert.throws(()=>fight.supply('A','buy','resistance',1,()=>assert.fail('purchase should not settle')),/Quan Quân Nhu/);
+});

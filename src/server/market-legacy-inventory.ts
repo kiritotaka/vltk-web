@@ -5,7 +5,7 @@ import type { CharacterSlot } from './market-character-inventory.ts';
 type Item = { uid: number; n: string; d: number; lock?: boolean; ktc?: unknown };
 type State = { inv?: unknown[]; [key: string]: unknown };
 type Change = { slot: CharacterSlot; unit: 'gold' | 'knb'; delta: number } |
-  { slot: CharacterSlot; add: Item[] } | { slot: CharacterSlot; remove: number } | { slot: CharacterSlot; warMerit: number } | { slot: CharacterSlot; warGoods: Record<string,number> };
+  { slot: CharacterSlot; add: Item[] } | { slot: CharacterSlot; remove: number } | { slot: CharacterSlot; warMerit: number } | { slot: CharacterSlot; warGoods: Record<string,number>; warCost?: number };
 type Approval = { id: string; uid: number; digest: string; consumed: number };
 
 function error(message: string): never {
@@ -184,18 +184,24 @@ export function legacyMarketInventory(db: DatabaseSync) {
     recordUpdate(owner,{slot,warMerit:points});
   }
 
-  function addWarGoods(owner:string,slot:CharacterSlot,goods:Record<string,number>) {
+  function addWarGoods(owner:string,slot:CharacterSlot,goods:Record<string,number>,warCost=0) {
     const save=load(owner,slot);
     const mats=(save.state.mats ??= {}) as Record<string,unknown>;
     const misc=(mats.misc ??= {}) as Record<string,number>;
+    if (!Number.isSafeInteger(warCost) || warCost<0) error("Giá quân trạng không hợp lệ.");
+    if (warCost) {
+      const balance=Number.isSafeInteger(misc.tk_merit) ? misc.tk_merit : 0;
+      if (balance<warCost) error("Không đủ quân trạng tích lũy.");
+      misc.tk_merit=balance-warCost;
+    }
     for(const [kind,amount] of Object.entries(goods)){
-      if(!/^[a-zA-Z]+$/.test(kind)||!Number.isSafeInteger(amount)||amount<=0)error("Vật phẩm Tống Kim không hợp lệ.");
+      if(!/^[a-zA-Z]+$/.test(kind)||!Number.isSafeInteger(amount)||amount===0)error("Vật phẩm Tống Kim không hợp lệ.");
       const key="tk_"+kind,before=Number.isSafeInteger(misc[key])&&misc[key]>0?misc[key]:0;
-      if(!Number.isSafeInteger(before+amount))error("Số lượng vật phẩm vượt giới hạn.");
+      if(!Number.isSafeInteger(before+amount)||before+amount<0)error("Số lượng vật phẩm không đủ hoặc vượt giới hạn.");
       misc[key]=before+amount;
     }
     db.prepare("UPDATE account_storage SET value=? WHERE account_id=? AND key=?").run(save.encode(),owner,slot);
-    recordUpdate(owner,{slot,warGoods:goods});
+    recordUpdate(owner,{slot,warGoods:goods,warCost});
   }
 
   function changeBalance(owner: string, slot: CharacterSlot, unit: 'gold' | 'knb', delta: number) {

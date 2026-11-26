@@ -95,12 +95,13 @@
       if (change.warGoods) {
         character.mats ??= {};
         const misc = character.mats.misc ??= {};
+        if (change.warCost) misc.tk_merit=Math.max(0,(Number(misc.tk_merit)||0)-change.warCost);
         for (const [kind,amount] of Object.entries(change.warGoods)) {
           const key="tk_"+kind;
           const before=Number.isSafeInteger(misc[key]) && misc[key]>0 ? misc[key] : 0;
           const next=before+amount;
           if (!Number.isSafeInteger(next)) throw new Error("Số lượng vật phẩm vượt giới hạn.");
-          misc[key]=next;
+          misc[key]=Math.max(0,next);
         }
       } else if (change.warMerit) {
         character.mats ??= {};

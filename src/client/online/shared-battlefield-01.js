@@ -30,6 +30,48 @@ var sharedBattlefield = (() => {
         (actor.team==='song'?'Tống':'Kim')+'</td><td>'+actor.points+'</td></tr>').join('') + '</tbody></table>');
   }
 
+  async function openSupplies(shop=false) {
+    const current=session;
+    if (!current || current.finished) return;
+    try {
+      const supplies=await request("supplies",current.ref);
+      if(session!==current || !supplies)return;
+      const rows=supplies.items.filter(item=>shop || item.count>0);
+      J("<h3>"+(shop?"Quan Quân Nhu":"Vật phẩm Tống Kim")+"</h3>"+
+        (shop?"<p>Quân trạng tích lũy · "+supplies.merit+"</p>":"")+
+        (rows.length?"<div class=\"shoplist\">"+rows.map(item=>
+          "<div class=\"row\"><img width=\"26\" height=\"26\" src=\"/"+D(item.icon)+"\" alt=\"\"><span><b>"+D(item.name)+
+          "</b> · "+item.count+"<br><small>"+D(item.description || "")+"</small></span>"+
+          (shop?"<button class=\"btn sm\" data-war-item=\""+D(item.kind)+"\" data-quantity=\"1\">Mua · "+item.price+
+            "</button><button class=\"btn sm\" data-war-item=\""+D(item.kind)+"\" data-quantity=\"10\">×10</button>"
+            :"<button class=\"btn sm\" data-war-item=\""+D(item.kind)+"\" data-quantity=\"1\">Dùng</button>")+"</div>").join("")+"</div>"
+          :"<p>Chưa có vật phẩm Tống Kim.</p>")+"<p id=\"shared-supply-status\" role=\"status\"></p>",()=>{
+        m("#mBody")?.querySelectorAll("[data-war-item]").forEach(button=>{
+          button.onclick=()=>void useSupply(current,shop,button.dataset.warItem,Number(button.dataset.quantity));
+        });
+      });
+    } catch(error) { k(error.message); }
+  }
+  async function useSupply(current,shop,kind,quantity) {
+    if(session!==current || current.supplying)return;
+    const command={action:shop?"buy":"use",kind,quantity};
+    const signature=JSON.stringify(command);
+    const status=m("#shared-supply-status");
+    if(current.pendingSupply && current.pendingSupply.signature!==signature){
+      if(status)status.textContent="Hãy thử lại thao tác trước để xác nhận kết quả.";
+      return;
+    }
+    current.pendingSupply??={signature,requestId:crypto.randomUUID()};
+    current.supplying=true;
+    try {
+      await request("supplies",{...current.ref,...command,requestId:current.pendingSupply.requestId});
+      current.pendingSupply=null;
+      if(session===current)await openSupplies(shop);
+    } catch(error) {
+      if(error.status>=400&&error.status<500)current.pendingSupply=null;
+      if(status)status.textContent=error.message;
+    } finally { current.supplying=false; }
+  }
   function installControls() {
     controls = document.createElement('div');
     controls.style.cssText='position:fixed;bottom:clamp(90px,17vh,140px);right:12px;z-index:20;display:flex;gap:6px';
@@ -39,7 +81,9 @@ var sharedBattlefield = (() => {
     leave.type='button';leave.className='btn sm';leave.textContent='Rời Tống Kim';leave.onclick=()=>void exit();
     const timer=document.createElement('span');
     timer.id='shared-war-timer';timer.className='btn sm';timer.setAttribute?.('aria-live','off');
-    controls.append(standings,leave,timer);
+    const supplies=document.createElement("button");
+    supplies.type="button";supplies.className="btn sm";supplies.textContent="Tiếp tế";supplies.onclick=()=>void openSupplies();
+    controls.append(standings,leave,timer,supplies);
     document.body.append(controls);
   }
 
@@ -80,7 +124,7 @@ var sharedBattlefield = (() => {
       }
       if (entity.casts !== undefined && entity.casts !== actor.casts) { entity.act="at"; entity.actT=0; }
       entity.casts=actor.casts;
-      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,dead:false});
+      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,dead:false,stun:actor.stun?1:0});
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
@@ -174,6 +218,11 @@ var sharedBattlefield = (() => {
 
   function drawLoot(context) {
     if (!session) return;
+    for(const trap of session.state.combat.traps||[]){
+      if(trap.x<B0.x-20||trap.x>B0.x+worldViewWidth()+20||trap.y<B0.y-20||trap.y>B0.y+worldViewHeight()+20)continue;
+      context.strokeStyle=trap.kind==="freezeTrap"?"#83dcff":trap.kind==="stunTrap"?"#ffd06e":"#96e7a1";
+      context.beginPath();context.ellipse(trap.x,trap.y,11,6,0,0,Math.PI*2);context.stroke();
+    }
     for (const item of session.state.combat.drops || []) {
       if (item.x<B0.x-24 || item.x>B0.x+worldViewWidth()+24 || item.y<B0.y-24 || item.y>B0.y+worldViewHeight()+24)continue;
       const image=bA(item.icon);
@@ -258,5 +307,5 @@ var sharedBattlefield = (() => {
   document.addEventListener('keydown',event=>{
     if(session && event.key==='Escape' && m('#modal')?.classList.contains('hidden')) { event.stopImmediatePropagation();ranking(); }
   },true);
-  return {open,tick,crowdFrame,drawLoot,get active(){return !!session;},get team(){return session?.state.player.team;}};
+  return {open,tick,crowdFrame,drawLoot,openSupplies,get active(){return !!session;},get team(){return session?.state.player.team;}};
 })();

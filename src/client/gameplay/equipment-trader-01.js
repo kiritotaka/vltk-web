@@ -305,7 +305,10 @@ var equipmentTrader = (function () {
     const names = new Set(MapsEngine.npcCatalog.map(npc => npc.name));
     const actions = {
       equipment: open,
-      quartermaster: () => { if (typeof quartermaster !== "undefined" && quartermaster) quartermaster.open(); },
+      quartermaster: () => {
+        if (typeof sharedBattlefield !== "undefined" && sharedBattlefield.active) void sharedBattlefield.openSupplies(true);
+        else if (typeof quartermaster !== "undefined" && quartermaster) quartermaster.open();
+      },
       pharmacy: () => {
         if (battle) arenaSimulator.openPharmacy();
         else { Nt = 'med'; lh(); }

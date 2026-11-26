@@ -47,7 +47,7 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(requests[1][1].target,'enemy');
   assert.equal(requests[1][1].movement.sequence,1);
   const controls=s.document.body.children[0];
-  assert.equal(controls.children.length,3);
+  assert.equal(controls.children.length,4);
   controls.children[1].onclick();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(s.sharedBattlefield.active,false);

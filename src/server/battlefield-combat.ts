@@ -48,6 +48,7 @@ function getCombatScripts() {
     ['simulator/balance.ts', 'BattlefieldBalance'],
     ['simulator/reflection.ts', 'BattlefieldReflection'],
     ['simulator/war-rewards.ts', 'WarItemRules'],
+    ['gameplay/quartermaster/model.ts', 'QuartermasterRules'],
   ].map(([file,name])=>new vm.Script(compileTypeScriptEntry(file,name).code,{filename:file})).concat(
     new vm.Script(fs.readFileSync(path.join(ROOT,'src/client/combat/legacy-bridge.js'),'utf8'),{filename:'combat/legacy-bridge.js'}),
   );
@@ -71,12 +72,13 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     r0: { 0: { anim: '' } }, ea: () => 1,
   });
 
-  function statsFor(profile: SimulatorProfile): SimulatorStats {
-    const previous = globals.o;
+  function statsFor(profile: SimulatorProfile, apply?: (stats: SimulatorStats)=>void): SimulatorStats {
+    const previous = globals.o, simulator=globals.arenaSimulator;
     try {
       globals.o = structuredClone(profile);
+      if(apply)globals.arenaSimulator={applyBattlefieldBonuses:apply};
       return structuredClone(native.j0()) as SimulatorStats;
-    } finally { globals.o = previous; }
+    } finally { globals.o = previous;globals.arenaSimulator=simulator; }
   }
 
   function computerProfile(faction:string) {
@@ -164,5 +166,8 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     globals.CombatEngine.advanceSkillContacts(dt);
   }
   return { statsFor, computerProfile, cast, advance,
+    createWarRewards: globals.WarItemRules.createWarRewards as (host:Record<string,unknown>)=>{use(kind:string):void; apply(stats:SimulatorStats,actor:SharedCombatant):void; tick(dt:number):void; readonly traps:Array<{kind:string;x:number;y:number}>},
+    createQuartermaster: globals.QuartermasterRules.createQuartermaster as (host:Record<string,unknown>)=>{quote(kind:string,quantity:number):{before:number;cost:number};buy(kind:string,quantity:number):void},
+    prices: globals.QuartermasterRules.WAR_PRICES as Record<string,number>,
     items: globals.WarItemRules.WAR_ITEMS as Record<string,{name:string;icon:string;color:string}>, speed:(actor:SharedCombatant)=>native.actorMovementSpeed(actor) as number, locked: (actor: SharedCombatant) => native.actorActionLocked(actor) as boolean };
 }

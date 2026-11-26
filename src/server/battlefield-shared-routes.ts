@@ -19,6 +19,9 @@ export function registerSharedBattlefield(
 ) {
   const roster = createBattlefieldRoster(now);
   const inventory = legacyMarketInventory(db);
+  db.exec("CREATE TABLE IF NOT EXISTS battlefield_supply_receipts (account_id TEXT NOT NULL, request_id TEXT NOT NULL, signature TEXT NOT NULL, PRIMARY KEY(account_id,request_id)) STRICT");
+  const supplyReceipt=db.prepare("SELECT signature FROM battlefield_supply_receipts WHERE account_id=? AND request_id=?");
+  const saveReceipt=db.prepare("INSERT INTO battlefield_supply_receipts VALUES (?,?,?)");
   const recipients = new Map<string,{accountId:string;slot:CharacterSlot;pending:number;goods:Record<string,number>}>();
   let nextSettlement = 0;
   function earn(id:string,points:number) {
@@ -155,6 +158,37 @@ export function registerSharedBattlefield(
     if (!room.finished && skill !== undefined) current.fight.selectSkill(participantId,skill as number | null);
     if (!room.finished && target !== undefined) current.fight.chooseTarget(participantId,target as string | null);
     return sendJson(reply,200,output(room));
+  });
+
+  app.post("/api/battlefield/shared/supplies", (request,reply)=>{
+    const {id}=requireUser(request);
+    const {matchId,participantId,action,kind,quantity,requestId}=command(request);
+    if (typeof matchId!=="string"||typeof participantId!=="string")return invalid("Mã trận không hợp lệ.");
+    const room = roster.sync(id,matchId,participantId);
+    if (!current || current.id!==matchId || room.finished)return invalid("Trận đấu đã kết thúc.",409);
+    if (action===undefined)return sendJson(reply,200,current.fight.supplies(participantId));
+    if ((action!=="buy"&&action!=="use")||typeof kind!=="string"||typeof requestId!=="string"||!/^[a-zA-Z0-9-]{1,80}$/.test(requestId)||
+        typeof quantity!=="number"||!Number.isSafeInteger(quantity)||quantity<1||quantity>50||(action==="use"&&quantity!==1))return invalid("Yêu cầu quân nhu không hợp lệ.");
+    const recipient=recipients.get(participantId);
+    if(!recipient || recipient.accountId!==id)return invalid("Suất tham gia đã hết hiệu lực.",409);
+    const signature=JSON.stringify([matchId,participantId,action,kind,quantity]);
+    const previous=supplyReceipt.get(id,requestId);
+    if(previous){
+      if(previous.signature!==signature)return invalid("Mã yêu cầu đã được sử dụng.",409);
+      return sendJson(reply,200,current.fight.supplies(participantId));
+    }
+    settle();
+    try {
+      current.fight.supply(participantId,action,kind,quantity,(delta,cost)=>{
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          inventory.addWarGoods(id,recipient.slot,{[kind]:delta},cost);
+          saveReceipt.run(id,requestId,signature);
+          db.exec("COMMIT");
+        } catch(error){db.exec("ROLLBACK");throw error;}
+      });
+    } catch(error) {return invalid(error instanceof Error?error.message:"Không xử lý được vật phẩm.",409);}
+    return sendJson(reply,200,current.fight.supplies(participantId));
   });
 
   app.post('/api/battlefield/shared/leave', (request,reply) => {

@@ -14,6 +14,9 @@ const layout = JSON.parse(readFileSync(new URL("../client/maps/content/9003/layo
   armySpawns: Record<BattlefieldTeam,Point[]>; marshals: Record<BattlefieldTeam,Point>;
   patrolPoints: Point[]; paths: [number,number][][];
 };
+const authoredMap = JSON.parse(readFileSync(new URL("../client/maps/content/9003/map.json",import.meta.url),"utf8")) as {
+  npcs: Array<{npcId:string;team?:BattlefieldTeam;position:Point}>;
+};
 const npcRanks = [
   { name:"Binh sĩ", count:25, life:50000, tid:599, points:50 },
   { name:"Hiệu úy", count:5, life:60000, tid:601, points:100 },
@@ -29,6 +32,7 @@ interface Player extends SharedCombatant {
   skillId: number | null;
   casts:number;
   kind: "player" | "sim" | "npc" | "marshal";
+  battlefieldTeam:BattlefieldTeam; battlefieldMonster:boolean; battlefieldBoss:boolean;
   home: Point; reward: number; returnAt: number; route: number; waypoint: number;
 }
 
@@ -36,7 +40,9 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   const players = new Map<string, Player>();
   const score: Record<BattlefieldTeam,number> = { song: 0, jin: 0 };
   const latestHit = new Map<string, { player: Player; time: number }>();
-  let time = 0, nextSearch = 0, nextDropCheck=0, dropId=0;
+  let time = 0, nextSearch = 0, nextDropCheck=0, lastEffectTick=0,dropId=0;
+  const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
+  const dirty=new Set<Player>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
 
@@ -48,7 +54,11 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       const merit = player.kind === "player" || player.kind === "sim" ? player.reward*rank : player.reward;
       score[hit.player.team] += merit;
       hit.player.points += merit;
-      if (hit.player.kind === "player") earned?.(hit.player.id,merit);
+      if (hit.player.kind === "player") {
+        const misc=stock(hit.player);
+        misc.tk_merit=(Number(misc.tk_merit)||0)+merit;
+        earned?.(hit.player.id,merit);
+      }
       if (player.kind === "npc" && random() < .35) {
         const kinds=Object.keys(combat.items);
         if(drops.length>=40)drops.shift();
@@ -90,7 +100,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
 
   function add(id:string,team:BattlefieldTeam,profile:SimulatorProfile,stats:SharedCombatant["stats"],kind:Player["kind"],home:Point,reward:number,tid:number) {
     players.set(id,{
-      id,team,profile,stats,...home,home,kind,reward,returnAt:Infinity,route:0,waypoint:0,hp:stats.life,max:stats.life,mana:stats.mana,
+      id,team,profile,stats,...home,home,kind,battlefieldTeam:team,battlefieldMonster:kind==="npc",battlefieldBoss:kind==="marshal",reward,returnAt:Infinity,route:0,waypoint:0,hp:stats.life,max:stats.life,mana:stats.mana,
       def:stats.def,res:stats.res,series:stats.series,deaths:0,points:0,actionRevision:0,cooldown:0,
       stun:0,poison:0,poisonDmg:0,slowT:0,slowPower:0,requestedTarget:null,skillId:null,casts:0,r:15,tid,
     });
@@ -102,6 +112,8 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     player.dead = true;
     player.actionRevision++;
     players.delete(id);
+    const effect=effects.get(id);
+    if(effect){for(const actor of effect.affected)dirty.add(actor);effects.delete(id);}
     latestHit.delete(id);
   }
 
@@ -232,7 +244,16 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       if (!cast && player.kind !== "player" && (!target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
     }
     combat.advance(dt);
-    if(time>=nextDropCheck){collectNearby();nextDropCheck=time+.1;}
+    if(time>=nextDropCheck){
+      collectNearby();
+      const effectStep=time-lastEffectTick;lastEffectTick=time;
+      for(const [id,effect] of effects){
+        effect.rules.tick(effectStep);
+        if(time>=effect.until){effects.delete(id);for(const actor of effect.affected)dirty.add(actor);}
+      }
+      recalculate();
+      nextDropCheck=time+.1;
+    }
   }
 
   function pruneHumans(active:Set<string>) {
@@ -252,6 +273,75 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     const actor=players.get(id);
     if (!actor) return;
     if (skillId === null || skillId === 0 || actor.stats.actives?.some((skill:SharedCombatant["stats"]["main"])=>skill.id===skillId)) actor.skillId=skillId;
+  }
+  function stock(player:Player):Record<string,number> {
+    player.profile.mats??={};player.profile.mats.misc??={};
+    return player.profile.mats.misc;
+  }
+  function freeSlots(player:Player) {
+    const inventory=stock(player);
+    const supplies=Object.keys(combat.items).reduce((sum,kind)=>sum+Math.ceil((Number(inventory["tk_"+kind])||0)/50),0);
+    const special=["vlmt","ttk","rngua","ldt"].filter(kind=>inventory[kind]>0).length;
+    return 60+60*Math.max(0,Math.min(3,Number(player.profile.invX)||0))-player.profile.inv.length-supplies-special;
+  }
+  function canShop(player:Player) {
+    return player.hp>0 && authoredMap.npcs.some(npc=>npc.npcId==="quartermaster" && (!npc.team || npc.team===player.team) &&
+      Math.hypot(npc.position.x-player.x,2*(npc.position.y-player.y))<=180);
+  }
+  function recalculate() {
+    let budget=12;
+    for(const actor of dirty){
+      dirty.delete(actor);
+      if(!players.has(actor.id)||actor.kind==="npc"||actor.kind==="marshal")continue;
+      actor.stats=combat.statsFor(actor.profile,next=>{
+        for(const effect of effects.values()) if(effect.affected.has(actor))effect.rules.apply(next,actor);
+      });
+      actor.max=actor.stats.life;actor.hp=Math.min(actor.hp,actor.max);actor.def=actor.stats.def;actor.res=actor.stats.res;
+      if (--budget===0) break;
+    }
+  }
+  function supply(id:string,action:"buy"|"use",kind:string,quantity:number,commit:(delta:number,cost:number)=>void) {
+    const player=players.get(id);
+    if(!player || player.kind!=="player" || player.hp<=0 || !Object.hasOwn(combat.items,kind))throw new Error("Nhân vật hoặc vật phẩm không hợp lệ.");
+    const inventory=stock(player);
+    if(action==="buy"){
+      const shop=combat.createQuartermaster({storage:()=>inventory,freeSlots:()=>freeSlots(player),available:()=>canShop(player),changed() {}});
+      if(!canShop(player))throw new Error("Hãy đến gần Quan Quân Nhu của phe mình.");
+      const quote=shop.quote(kind,quantity);
+      commit(quantity,quote.cost);shop.buy(kind,quantity);return;
+    }
+    if((inventory["tk_"+kind]||0)<1)throw new Error("Chưa có loại vật phẩm này.");
+    commit(-1,0);
+    let effect=effects.get(id);
+    if(!effect){
+      const affected=new Set<Player>();
+      const rules=combat.createWarRewards({player:()=>player,team:()=>player.team,running:()=>true,alive:()=>player.hp>0,
+        storage:()=>inventory,actors,changed(){},bonusesChanged(){for(const actor of affected)dirty.add(actor);},
+        trap(actor:Player,type:string){
+          if(type==="stunTrap")actor.stun=Math.max(actor.stun,3);
+          else {actor.slowT=Math.max(actor.slowT,type==="freezeTrap"?3:5);actor.slowPower=type==="freezeTrap"?.75:.5;}
+        },
+      });
+      effect={owner:player,rules,affected,until:0};effects.set(id,effect);
+    }
+    effect.affected.add(player);
+    if(["drum","command","horn"].includes(kind)){
+      for(const actor of actors())if(Math.hypot(actor.x-player.x,(actor.y-player.y)*2)<=300)effect.affected.add(actor);
+    }
+    effect.until=time+181;effect.rules.use(kind);
+    // The caster gets the buff immediately, with other affected recruits refreshed in batches.
+    dirty.delete(player);
+    const remaining=[...dirty];dirty.clear();dirty.add(player);
+    for(const actor of remaining)dirty.add(actor);
+    recalculate();
+  }
+  function supplies(id:string) {
+    const player=players.get(id);
+    if(!player)return null;
+    const inventory=stock(player);
+    return {nearShop:canShop(player),merit:inventory.tk_merit||0,items:Object.entries(combat.items).map(([kind,item])=>({
+      ...item,kind,count:inventory["tk_"+kind]||0,price:combat.prices[kind],
+    }))};
   }
   function collectNearby() {
     for(let index=drops.length-1;index>=0;index--){
@@ -277,13 +367,14 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
     return {
       score:{...score},
+      traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
         .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
-        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts,
+        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0,
       })),
     };
   }
-  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill };
+  return { join,leave,chooseTarget,move,tick,snapshot,army,pruneHumans,moveInput,selectSkill,supply,supplies };
 }
