@@ -94,7 +94,11 @@ var xe = () => !!(o && o.eq && o.eq.horse && p0(o.eq.horse));
 
 var S3 = () => o.autoRide !== !1 && !(typeof $1 == "function" && $1());
 
-var Ra = () => actorMovementSpeed(v);
+var Ra = () => {
+  const rules = typeof field120Context === "function" ? field120Context() : null;
+  const support = rules ? field120Skill() : null;
+  return actorMovementSpeed(v) * (support ? rules.speed(v, support.id, support.level, l.clock || 0) : 1);
+};
 
 var I3 = function () {
   return {

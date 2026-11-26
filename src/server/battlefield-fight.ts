@@ -46,6 +46,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   const effects=new Map<string,{owner:Player; rules:ReturnType<ReturnType<typeof createBattlefieldCombat>["createWarRewards"]>; affected:Set<Player>; until:number}>();
   const dirty=new Set<Player>();
   let visualId=0;
+  const supportVisuals:Array<{id:number;skill:number;x:number;y:number;until:number;actor:string}> = [];
   const visuals:Array<{id:number;actor:string;x:number;y:number;tx:number;ty:number;skill:number;level:number;missiles:number;rad:number;geo:SharedCombatant["stats"]["main"]["geo"];secondary:boolean;element:string;target:string;melee:boolean;until:number}>=[];
   const pharmacies=new Map<string,{ model:SharedPharmacy;ready:Record<PotionResource,number>;player:Player;catalog:SharedPotion[];commit?: (cost:number)=>void }>();
   const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
@@ -80,6 +81,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   }
 
   function restore(player:Player) {
+    combat.resetSupport(player);
     Object.assign(player, player.home, {
       dead:false, waypoint:0,
       hp:player.max, mana:player.stats.mana, cooldown:0, requestedTarget:null,
@@ -93,7 +95,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     if (!attacker || !defender || attacker.team === defender.team) return;
     latestHit.set(defender.id,{ player:attacker,time });
     respawn(defender);
-  });
+  },(skill,actor,point)=>{
+    if(supportVisuals.length>=96)supportVisuals.shift();
+    supportVisuals.push({id:++visualId,skill,x:point.x,y:point.y,until:time+1,actor:actor.id});
+  },random);
 
   function join(id:string, team:BattlefieldTeam, profile:SimulatorProfile, pharmacyKey=id) {
     if (players.has(id)) return;
@@ -208,8 +213,10 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
   }
   function moveComputer(player:Player,target:Player|undefined,dt:number) {
     if (player.kind === "marshal" || player.stun > 0 || combat.locked(player)) return;
-    let destination:Point|undefined = target;
-    if (player.kind === "npc") {
+    const fear=combat.fear(player,time);
+    let destination:Point|undefined = fear
+      ? {x:player.x+(player.x-fear.x||1),y:player.y+player.y-fear.y} : target;
+    if (!fear && player.kind === "npc") {
       if (!target || Math.hypot(player.x-player.home.x,player.y-player.home.y)>800) destination=player.home;
     } else if (!destination) {
       const path=layout.paths[player.route];
@@ -221,7 +228,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     if (!destination) return;
     const x=destination.x-player.x,y=destination.y-player.y;
     const scale=Math.max(Math.hypot(x,y),15);
-    Object.assign(player,advanceBattlefieldPosition(player,{x:x/scale,y:y/scale,sequence:1},1000*dt));
+    Object.assign(player,advanceBattlefieldPosition(player,{x:x/scale,y:y/scale,sequence:1},1000*dt,combat.supportSpeed(player,time)));
   }
   function tick(dt:number) {
     time += dt;
@@ -231,10 +238,11 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       player.cooldown = Math.max(0,player.cooldown-dt);
       player.stun = Math.max(0,player.stun-dt);
       player.slowT = Math.max(0,player.slowT-dt);
+      combat.updateSupport(player,actors,time);
       if (player.poison > 0) {
         const duration = Math.min(player.poison,dt);
         player.poison -= duration;
-        player.hp = Math.max(0,player.hp-duration*player.poisonDmg);
+        player.hp = Math.max(0,player.hp-combat.periodicDamage(player,duration*player.poisonDmg,time));
         if (player.hp <= 0) { respawn(player); continue; }
       }
       player.hp = Math.min(player.max,player.hp + (player.stats.regen || 0)*dt);
@@ -253,7 +261,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
         });
         if (cast) player.casts++;
       }
-      if (!cast && player.kind !== "player" && (!target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
+      if (!cast && player.kind !== "player" && (combat.fear(player,time) || !target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
     }
     combat.advance(dt);
     if(time>=nextDropCheck){
@@ -283,7 +291,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     if (!actor) return undefined;
     if (actor.stun<=0 && !combat.locked(actor)) {
       const speed=combat.speed(actor);
-      const point=advanceBattlefieldPosition(actor,direction,elapsed,Number.isFinite(speed)?Math.min(3,speed):1);
+      const point=advanceBattlefieldPosition(actor,direction,elapsed,Number.isFinite(speed)?Math.min(3,speed)*combat.supportSpeed(actor,time):1);
       Object.assign(actor,point);
     }
     return {x:actor.x,y:actor.y};
@@ -454,13 +462,15 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     return {
       score:{...score},
       visuals:personal.concat(nearby.slice(-32)),
+      supportVisuals:viewer ? supportVisuals.filter(event=>event.until>time &&
+        (event.actor===viewer.id || (Math.abs(event.x-viewer.x)<950 && Math.abs(event.y-viewer.y)<650))).slice(-24) : [],
       potionSlots:viewer?.kind==="player" ? {life:pharmacyFor(viewer).model.slot("life"),mana:pharmacyFor(viewer).model.slot("mana")} : null,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
         .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
-        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0,
+        mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts, stun:player.stun>0, support:combat.supportStatus(player,time),
         appearance:player.kind==="player" && (!viewer || Math.abs(player.x-viewer.x)<=1200&&Math.abs(player.y-viewer.y)<=800) ? appearance(player) : undefined,
       })),
     };

@@ -186,7 +186,50 @@ var ja = function (A, n, t, e, a, i, r) {
   );
 };
 
+var field120Owner = null, field120 = null;
+var field120Context = function () {
+  if (l.sim || l.battlefield || l.serverCombat || typeof CombatEngine === "undefined" || !CombatEngine.createSupport120) return null;
+  if (field120Owner !== o) {
+    field120Owner = o;
+    field120 = CombatEngine.createSupport120();
+  }
+  return field120;
+};
+var field120Skill = () => {
+  for (let id = 708; id <= 717; id++) {
+    const level = CombatEngine.supportLevel(o, id);
+    if (level) return { id, level };
+  }
+  return { id: 0, level: 0 };
+};
+var field120Status = () => {
+  if (v.sharedSupport) return v.sharedSupport.id;
+  const rules=field120Context();
+  if(!rules)return 0;
+  const {id}=field120Skill();
+  return id===712 || rules.active(v,l.clock||0) ? id : 0;
+};
+var field120TargetStatus = actor => {
+  const rules = field120Context(), time = l.clock || 0;
+  return rules && {feared:!!rules.fear(actor,time),cursed:!!rules.resistance(actor,time)};
+};
+var showSupport120 = (id, point) => {
+  if (!l.quiet && l.fx?.length < (o.lowFx ? 32 : 96)) l.fx.push(CombatEngine.supportVisual(id, point));
+};
+var updateField120 = function () {
+  const rules = field120Context();
+  if (!rules || l.town || !l.P) return;
+  const { id, level } = field120Skill();
+  rules.update(v, id, level, l.life, l.P.life, l.clock || 0, () => l.enemies, showSupport120);
+};
+
 var hs = function (A, n) {
+  const rules = typeof field120Context === "function" ? field120Context() : null;
+  const support = rules ? field120Skill() : null;
+  const now = l.clock || 0;
+  const extra = support ? rules.amplify(v, support.id, support.level, now) : 1;
+  const broken = rules?.resistance(n, now);
+  const beforeHP = n.hp;
   const trace = typeof arenaSimulator !== "undefined" && arenaSimulator ? arenaSimulator.step : null;
   ((n.aggro = !0),
     A && A.id && T[A.id] && [90, 150].includes(T[A.id].tier) && ((n.hitSk || (n.hitSk = {}))[A.id] = 1));
@@ -220,8 +263,12 @@ var hs = function (A, n) {
       (g && Q0.some((j) => g[j])) || h
         ? Object.fromEntries(Q0.map((j) => [j, n.res[j] - ((g && g[j]) || 0) - h]))
         : n.res,
-    w = t ? Object.fromEntries(Q0.map((j) => [j, u[j] + (t.res[j] || 0)])) : u,
-    x = l.P.antiMax ? Math.max(0, 75 - l.P.antiMax / 4) : 75;
+    adjusted = broken ? { ...u, phys: (u.phys || 0) - broken.phys, fire: (u.fire || 0) - broken.fire } : u,
+    w = t ? Object.fromEntries(Q0.map((j) => [j, adjusted[j] + (t.res[j] || 0)])) : adjusted,
+    cap = element => {
+      const base = n.supportResMax?.[element] ?? 75;
+      return l.P.antiMax ? Math.max(0, base - l.P.antiMax / 4) : base;
+    };
   for (const j in A.parts) {
     let X = A.parts[j] * Z(0.85, 1.15);
     if (j === "poison") {
@@ -235,14 +282,14 @@ var hs = function (A, n) {
           A.series,
           n.series,
           w,
-          x,
+          cap("poison"),
           A.series5,
-        ) * ea()),
+        ) * ea() * extra),
         (n.poisonDmg = ($0 + d) / Math.max(I0, n.poison > 0 ? n.poison : 0)),
         (n.poison = Math.max(I0, n.poison > 0 ? n.poison : 0)));
       continue;
     }
-    ((X = ja(X, j, A.series, n.series, w, x, A.series5)),
+    ((X = ja(X, j, A.series, n.series, w, cap(j), A.series5)),
       j === "cold" && (coldDamage = X),
       e && j === "phys" && (X *= y5),
       (i += X),
@@ -264,7 +311,7 @@ var hs = function (A, n) {
   A.parts.light && Math.random() < Od && (n.stun = Math.max(n.stun, Ed * _));
   const y = !(i > 0) && d > 0;
   if (
-    ((i = y ? 0 : Math.max(1, i * ea())),
+    ((i = y ? 0 : Math.max(1, i * ea() * extra)),
     (trace && trace("Sát thương trực tiếp = chỉ độc ? 0 : max(1, tổng × ea)", { poisonOnly: y, accountMultiplier: ea(), damage: i, hpBefore: n.hp, hpAfter: n.hp - i })),
     (n.hp -= i),
     (n.hitT = 0.12),
@@ -293,6 +340,10 @@ var hs = function (A, n) {
     O = ((M && l.P.manaLeech) || 0) + (A.ev2 && !l.battlefield ? 0 : A.skMLeech || 0);
   (B && za((i * B) / 100, !0), O && (l.mana = Math.min(l.P.mana, l.mana + (i * O) / 100)));
   const G = p ? " ⚡" : P ? " 🛡" : "";
+  if (support && !A.ev2 && n.hp > 0) {
+    const poison = rules.hit(v, support.id, support.level, n, true, Math.min(beforeHP, i), now, Math.random, showSupport120);
+    if (poison > 0) CombatEngine.stackSupportPoison(n, ja(poison, "poison", A.series, n.series, w, cap("poison"), A.series5), ve);
+  }
   // Poison is deferred: display only actual HP loss from its later ticks.
   return y
     ? d
@@ -303,6 +354,19 @@ var hs = function (A, n) {
 var Tt = function () {};
 
 var U9 = function (A) {
+  const rules = typeof field120Context === "function" ? field120Context() : null;
+  const support = rules ? field120Skill() : null;
+  const now = l.clock || 0;
+  if (support && !rules.fear(A, now)) updateField120();
+  if (support && (rules.fear(A, now) || rules.evades(v, support.id, support.level, now, true, Math.random, showSupport120))) {
+    showDamageNumber(v, "Né");
+    return;
+  }
+  if (support?.id === 708 && Math.random() * 100 < CombatEngine.supportDefense(support.level).block) {
+    showSupport120(708, v);
+    showDamageNumber(v, "Hóa giải");
+    return;
+  }
   const attackerHP = A.hp;
   const trace = typeof arenaSimulator !== "undefined" && arenaSimulator ? arenaSimulator.step : null;
   const n = typeof Rn == "function" ? Rn(A) : null;
@@ -365,6 +429,15 @@ var U9 = function (A) {
     trace && trace("Khiên mana: trừ min(mana, damage × manaShield / 100)", { mana: l.mana, manaShield: l.P.manaShield, absorbed: a, damage: e - a });
     ((l.mana -= a), (e -= a));
   }
+  if (support) {
+    e = rules.shield(v, support.id, now, e);
+    const reflected = rules.reflect(support.id === 709 ? support.level : 0, true, Math.min(l.life, e));
+    if (reflected > 0) {
+      A.hp -= reflected;
+      showSupport120(709, v);
+      showDamageNumber(A, reflected, "phys");
+    }
+  }
   if (
     ((trace && trace("Trừ HP", { damage: e, hpBefore: l.life, hpAfter: l.life - e, dot: l.hpDot || 0, dotSeconds: l.hpDotT || 0, sorb: l.P.sorb || 0, from: (l.P.from && l.P.from[A.series]) || 0 })),
     (l.life -= e),
@@ -378,6 +451,7 @@ var U9 = function (A) {
   }
   applyActorHurt(A, attackerHP - A.hp, A.max);
   showDamageNumber(v, e, t);
+  if (support) updateField120();
 };
 
 var za = function (A, n) {
@@ -922,15 +996,24 @@ var $d = function (A, n) {
     }
     A._lh = A.hp;
   }
+  if (A.poison > 0) {
+    const before = A.hp, step = Math.min(n, A.poison);
+    A.poison -= step; A.hp -= A.poisonDmg * step;
+    showDamageNumber(A, Math.max(0, Math.min(before, before - A.hp)), "poison");
+    if (A.hp <= 0) return;
+  }
   if (A.stun > 0) {
     A.stun -= n;
     return;
   }
   A.slowT = Math.max(0, (A.slowT || 0) - n);
-  if (A.poison > 0) {
-    const before = A.hp;
-    A.poison -= n; A.hp -= A.poisonDmg * n;
-    showDamageNumber(A, Math.max(0, Math.min(before, before - A.hp)), "poison");
+  const fear = typeof field120Context === "function" ? field120Context()?.fear(A, l.clock || 0) : null;
+  if (fear) {
+    const dx = A.x - fear.x, dy = A.y - fear.y;
+    A.moving = true;
+    A.dir = kn(dx || 1, dy);
+    Mw(A, A.x + (dx || 1), A.y + dy, A.spd * actorMovementSpeed(A) * n);
+    return;
   }
   if (actorActionLocked(A)) { A.moving = false; A.atkCd = Math.max(0, (A.atkCd || 0) - n); return; }
   if (A.home && KD(A, n)) return;

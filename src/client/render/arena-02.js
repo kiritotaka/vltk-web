@@ -1,6 +1,11 @@
 // render/arena — shared IIFE scope; order is defined in modules.json.
 var crowdRenderer = CrowdVisibility.createCrowdVisibility();
 
+var drawSupport120Badge = function (context, actor, id) {
+  const image = bA(T[id]?.ic);
+  if(image?.naturalWidth)context.drawImage(image,actor.x+14,actor.y-30,18,18);
+};
+
 var NP = function (A) {
   if (typeof renderImages !== 'undefined' && renderImages) {
     if (renderMapKey !== Z0.key) { renderImages.clear(); renderMapKey = Z0.key; }
@@ -141,7 +146,15 @@ var NP = function (A) {
       continue;
     }
     if ((a.arenaSim || a.sharedAvatar) && typeof arenaSimulator !== "undefined" && arenaSimulator) {
+      const support = a.sharedSupport?.id;
+      if (!o.lowFx && support === 710 && a.look?.anim) {
+        kf(a.look.anim, a.act || "st", a.dir || 0, a.actT || 0, a.x + 25, a.y + 5, Jn, .38);
+      }
+      if (!o.lowFx && support === 713) n.save();
+      if (!o.lowFx && support === 713) n.globalAlpha = .42;
       arenaSimulator.draw(n, a, A);
+      if (!o.lowFx && support === 713) n.restore();
+      if (!o.lowFx && support) drawSupport120Badge(n, a, support);
       continue;
     }
     if (a.oth) {
@@ -173,12 +186,17 @@ var NP = function (A) {
       )
         for (const P of l.dashTrail)
           kf(f.anim, "run", P.dir || 0, 0, P.x, P.y, Jn, 0.45 * (1 - P.t / 0.3));
+      const support = typeof field120Status === "function" ? field120Status() : 0;
+      if (!o.lowFx && support === 710 && f?.anim) {
+        kf(f.anim, v.act || "st", v.dir || 0, v.actT || 0, v.x + 25, v.y + 5, Jn, .38);
+      }
+      if (!o.lowFx && support) drawSupport120Badge(n, v, support);
       const u = df(l.slowT > 0, l.hpDotT > 0, l.stunT > 0),
         w =
           f &&
           f.anim &&
           _8(u, v.x - 120, v.y - 220, 240, 245, () =>
-            kf(f.anim, v.act || "st", v.dir || 0, v.actT || 0, v.x, v.y, Jn),
+            kf(f.anim, v.act || "st", v.dir || 0, v.actT || 0, v.x, v.y, Jn, !o.lowFx && support===713 ? .42 : 1),
           );
       (Pf(n, "over", w ? Math.min(w, 90) : 60), sv(n, A));
       const x = v.y - (typeof heroNameplateOffset === "function" ? heroNameplateOffset(Jn) : nameplateOffset(v.animKey, Jn, 0.9, 6, 58)),
@@ -257,6 +275,8 @@ var NP = function (A) {
           i * Ua,
         ),
       a.hitT > 0 && (a.hitT -= A));
+    const control = a.sharedSupport || (typeof field120TargetStatus === "function" ? field120TargetStatus(a) : null);
+    if (!o.lowFx && (control?.feared || control?.cursed)) drawSupport120Badge(n,a,control.feared ? 715 : 714);
     const d = a.y - nameplateOffset(a.animKey, i * Ua, 0.85, 8, a.r * 2 + 8);
     L3(
       a.x,

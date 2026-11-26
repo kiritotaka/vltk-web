@@ -39,7 +39,7 @@ test('all 34 advanced skills register once with their faction, icons and usable 
       assert.ok(['physicsenhance_p','poisondamage_v','colddamage_v','firedamage_v','lightingdamage_v'].some(key=>skill.attr[key]),skill.n);
       const fx=s.JFX.f[skill.id];assert.ok(s.JFX.m[fx.c],skill.n);
       for (const value of Object.values(s.JFX.m[fx.c])) if(value?.f) assert.ok(fs.existsSync(path.join(ROOT,'public',value.f)),value.f);
-    } else { assert.equal(skill.enemy,0);assert.match(skill.d,/chưa được áp dụng/); }
+    } else { assert.equal(skill.enemy,0);assert.doesNotMatch(skill.d,/chưa được áp dụng/); }
   }
   load(s,'src/client/data/advanced-skills-01.js');
   for(const entry of Object.values(manifest))assert.equal(s.I[entry.faction].skills.filter(id=>id===entry.id).length,1);

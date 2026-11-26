@@ -163,6 +163,7 @@ var sharedBattlefield = (() => {
     if (session.casts !== undefined && session.casts !== me.casts) { v.act="at";v.actT=0; }
     session.casts=me.casts;
     session.position=me;
+    v.sharedSupport=me.support;
     l.life=me.hp;l.mana=me.mana;
     const visible=new Set();
     let changedActors=false;
@@ -188,7 +189,7 @@ var sharedBattlefield = (() => {
       }
       if (entity.casts !== undefined && entity.casts !== actor.casts) { entity.act="at"; entity.actT=0; }
       entity.casts=actor.casts;
-      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,dead:false,stun:actor.stun?1:0});
+      Object.assign(entity,{hp:actor.hp,max:actor.max,remoteX:actor.x,remoteY:actor.y,dead:false,stun:actor.stun?1:0,sharedSupport:actor.support});
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
@@ -225,6 +226,11 @@ var sharedBattlefield = (() => {
           {k:"line",x1:from.x,y1:from.y-16,x2:end.x,y2:end.y-14,color,life:.23,max:.23});
       }
     }
+    for(const event of state.combat.supportVisuals || []){
+      if(event.id<=(session.supportVisualId||0))continue;
+      session.supportVisualId=event.id;
+      if((!o.lowFx || event.actor===me.id) && l.fx.length<96)l.fx.push(CombatEngine.supportVisual(event.skill,event));
+    }
     if (state.finished && !session.finished) {
       session.finished=true;
       ranking();
@@ -255,6 +261,7 @@ var sharedBattlefield = (() => {
     controls=null;
     ma(current.previous.map);
     Object.assign(l,current.previous.world);
+    delete v.sharedSupport;
     Object.assign(v,current.previous.hero);
     o.ctrl=current.previous.ctrl;o.autoMap=current.previous.autoMap;
     if(typeof qA==="function")qA();
@@ -397,7 +404,7 @@ var sharedBattlefield = (() => {
     const [inputX,inputY]=Qv();
     const manualMove = inputX || inputY;
     if(manualMove && typeof gt==="function" && Math.hypot(current.position.x-v.x,current.position.y-v.y)<22){
-      const speed=typeof Ra==="function"?Ra():1;
+      const speed=(typeof Ra==="function"?Ra():1)*(current.position.support?.speed || 1);
       gt(v,v.x+inputX*150*speed*dt,v.y+inputY*150*speed*dt);
     } else {
       v.x+=(current.position.x-v.x)*mix;

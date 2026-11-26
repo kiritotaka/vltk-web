@@ -14,6 +14,7 @@ var Td = function (A) {
       mg()),
     l.dirty && D0());
   const n = l.P;
+  if (typeof updateField120 === "function") updateField120();
   if (typeof combatSandbox !== "undefined" && combatSandbox) combatSandbox.tick(A);
   else if (typeof arenaSimulator !== "undefined" && arenaSimulator?.battlefield.active) arenaSimulator.tick(A);
   advanceSkillContacts(A);
@@ -33,8 +34,12 @@ var Td = function (A) {
     l.hpDotT > 0)
   ) {
     const e = Math.min(A, l.hpDotT) / l.hpDotT;
-    const damage = l.hpDot * e, before = l.life;
-    ((l.life -= damage), (l.hpDot -= damage), (l.hpDotT -= A));
+    const tickDamage = l.hpDot * e, before = l.life;
+    const rules = typeof field120Context === "function" ? field120Context() : null;
+    const id = rules ? field120Skill().id : 0, now = l.clock || 0;
+    const damage = rules?.immune(v, id, now) ? 0 : rules?.shield(v, id, now, tickDamage) ?? tickDamage;
+    ((l.life -= damage), (l.hpDot -= tickDamage), (l.hpDotT -= A));
+    if (rules) updateField120();
     showDamageNumber(v, Math.max(0, Math.min(before, before - l.life)), "poison");
     if (typeof combatLog !== "undefined" && combatLog) combatLog.record("in", "Hiệu ứng độc", Math.min(Math.max(0, before), damage), "Hiệu ứng duy trì");
   }
@@ -245,6 +250,7 @@ var lD = function () {
 };
 
 var dD = function () {
+  if (typeof field120Context === "function") field120Context()?.reset(v);
   if (typeof arenaSimulator !== "undefined" && arenaSimulator && arenaSimulator.battlefield.running) { arenaSimulator.battlefield.playerDied(); return; }
   if (
     (l.enemies.some((A) => A.goldBoss && !A.dead) && (Q().gbT = Hh),

@@ -193,6 +193,21 @@ var j0 = function (A, trace) {
         ]));
     if (trace) trace({ kind: "equipment", id: K, name: f0.n }, n, r);
   }
+  const level120 = typeof CombatEngine !== "undefined" ? CombatEngine.supportLevel?.(o, 708) || 0 : 0;
+  if (level120) {
+    const bonus = CombatEngine.supportDefense(level120);
+    pt(n, "allres_p", [bonus.res]);
+    pt(n, "allresmax_p", [bonus.cap]);
+    pt(n, "lifereplenish_p", [bonus.regen]);
+  }
+  if (typeof CombatEngine !== "undefined" && typeof wn === "function") {
+    for (const K in o.sk) {
+      const skill = T[K];
+      if (!skill || !o.sk[K]) continue;
+      const bonus = CombatEngine.supportBonus?.(o, skill, wn(skill)) || 0;
+      if (bonus) r[K] = (r[K] || 0) + bonus;
+    }
+  }
   const h = t4(A),
     g = Math.round(z(n, "allskill_v")),
     u = { A: n, plusSkill: g, skAdd: r },

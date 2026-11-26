@@ -66,16 +66,47 @@ function getCombatScripts() {
 }
 
 /** One native contact world per match. Globals are restored after a cast callback. */
-export function createBattlefieldCombat(onDamage: (source: SharedCombatant, target: SharedCombatant) => void) {
+export function createBattlefieldCombat(
+  onDamage: (source: SharedCombatant, target: SharedCombatant) => void,
+  onSupport: (id:number,actor:SharedCombatant,point:{x:number;y:number})=>void = ()=>{},
+  random = Math.random,
+) {
   const { nativeGlobals: globals, nativeScope: native, vmContext: context } = createNativeProfileScope(ROOT);
   for (const script of getCombatScripts()) script.runInContext(context);
+  const { createSupport120, stackSupportPoison, supportDefense, supportLevel } = globals.CombatEngine;
+  const support=createSupport120();
+  const skillByProfile=new WeakMap<SimulatorProfile,{id:number;level:number}>();
+  function supportSkill(profile:SimulatorProfile) {
+    let skill=skillByProfile.get(profile);
+    if(!skill){
+      skill={id:0,level:0};
+      for(let id=708;id<=717;id++){
+        const level=supportLevel(profile,id);
+        if(level){skill={id,level};break;}
+      }
+      skillByProfile.set(profile,skill);
+    }
+    return skill;
+  }
+  const npc=(actor:SharedCombatant)=>actor.kind==="npc" || actor.kind==="marshal";
+  const emit=(actor:SharedCombatant)=>(id:number,point:{x:number;y:number})=>onSupport(id,actor,point);
+  function updateSupport(actor:SharedCombatant,nearby:()=>SharedCombatant[],time=world.clock) {
+    const {id,level}=supportSkill(actor.profile);
+    if(!level)return;
+    support.update(actor,id,level,actor.hp,actor.max,time,
+      ()=>nearby().filter(other=>other.team!==actor.team && npc(other)),emit(actor));
+  }
+  function periodicDamage(actor:SharedCombatant,damage:number,time:number){
+    const {id}=supportSkill(actor.profile);
+    return support.immune(actor,id,time) ? 0 : support.shield(actor,id,time,damage);
+  }
   const { navigation, size } = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/client/maps/content/9003/map.json'), 'utf8')) as {
     navigation: GridDefinition; size: Size;
   };
   const grid = decodeGrid(navigation, size);
   const sight = (x: number, y: number, tx: number, ty: number) =>
     clearSegment(grid, { x, y }, { x: tx, y: ty }, false);
-  const world: LegacyScope = { battlefield: true, quiet: true, zoneShown: 9003, clock: 0, fx: [], fxQ: [], life: 1, enemies: [] };
+  const world: LegacyScope = { battlefield: true, quiet: true, serverCombat: true, zoneShown: 9003, clock: 0, fx: [], fxQ: [], life: 1, enemies: [] };
   const spectator = { x: -1000, y: -1000 };
   Object.assign(globals, {
     performance: { now:() => world.clock*1000 }, A0: globals.JFX, Z0: { g: true }, l: world, v: spectator,
@@ -117,10 +148,23 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     if(world.clock-reportedAt<5)return;
     reportedAt=world.clock;console.error("Lỗi đòn đánh Tống Kim",error);
   }
-  function strike(source: SharedCombatant, target: SharedCombatant, skill: SimulatorSkill) {
-    const receiver = { ...target, hurtProxy:true, poison: 0, poisonDmg: 0, stun: 0, slowT: 0, slowPower: 0 };
+  function strike(source: SharedCombatant, target: SharedCombatant, skill: SimulatorSkill, actors:()=>SharedCombatant[]) {
+    const time=world.clock;
+    const sourceSkill=supportSkill(source.profile), targetSkill=supportSkill(target.profile);
+    if(support.fear(source,time))return 0;
+    updateSupport(target,actors);
+    if(support.evades(target,targetSkill.id,targetSkill.level,time,npc(source),random,emit(target))) return 0;
+    if(targetSkill.id===708 && random()*100<supportDefense(targetSkill.level).block){
+      onSupport(708,target,target);
+      return 0;
+    }
+    const broken=support.resistance(target,time);
+    const res=broken ? {...target.res,phys:(target.res.phys||0)-broken.phys,fire:(target.res.fire||0)-broken.fire} : target.res;
+    const receiver = { ...target, res, supportResMax:targetSkill.id===708 ? target.stats.resMaxE : undefined,
+      hurtProxy:true, poison: 0, poisonDmg: 0, stun: 0, slowT: 0, slowPower: 0 };
     const fighter = (actor:SharedCombatant) => actor.kind === "player" || actor.kind === "sim";
-    const scale = fighter(source) && fighter(target) ? globals.BattlefieldBalance.BATTLEFIELD_PVP_DAMAGE : 1;
+    const scale = (fighter(source) && fighter(target) ? globals.BattlefieldBalance.BATTLEFIELD_PVP_DAMAGE : 1) *
+      support.amplify(source,sourceSkill.id,sourceSkill.level,time);
     const ability = scale === 1 ? skill : {...skill,parts:Object.fromEntries(Object.entries(skill.parts).map(([element,damage])=>[element,damage*scale]))};
     actorContext(source, () => {
       const flat=source.stats.series5;
@@ -129,7 +173,9 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     });
     const hit = Math.max(0,target.hp-receiver.hp);
     const resolved = fighter(target) ? globals.SkillDefense.skillDefense(hit,target.stats,target.mana,source.series,native.Jr) : {damage:hit,mana:target.mana};
-    target.hp = Math.max(0,target.hp-resolved.damage);
+    const damage=support.shield(target,targetSkill.id,time,resolved.damage);
+    const loss=Math.min(target.hp,damage);
+    target.hp = Math.max(0,target.hp-damage);
     target.mana = resolved.mana;
     if (receiver.poison > 0) {
       const seconds = globals.SkillDefense.statusDuration(receiver.poison,target.stats.poisonRed);
@@ -147,18 +193,33 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
       }
     }
     target.stun = Math.max(target.stun,globals.SkillDefense.statusDuration(receiver.stun,target.stats.stunRed));
-    if (!(skill.parts.cold>0)) native.applyActorHurt(target,resolved.damage,target.max);
-    const reflected = fighter(target) ? globals.BattlefieldReflection.reflectedSkillDamage(resolved.damage,target.stats,skill.melee===false) : 0;
-    if (reflected>0) {
-      source.hp = Math.max(0,source.hp-reflected);
-      onDamage(target,source);
+    if (!(skill.parts.cold>0)) native.applyActorHurt(target,damage,target.max);
+    const procPoison=!skill.ev2 && target.hp>0
+      ? support.hit(source,sourceSkill.id,sourceSkill.level,target,npc(target),loss,time,random,emit(source)) : 0;
+    if(procPoison>0){
+      const seconds=globals.SkillDefense.statusDuration(native.ve,target.stats.poisonRed);
+      const cap=Math.max(0,(receiver.supportResMax?.poison ?? 75)-(source.stats.antiMax||0)/4);
+      const poison=native.ja(procPoison,"poison",skill.series,target.series,res,cap,skill.series5||0);
+      stackSupportPoison(target,poison*seconds/native.ve,seconds);
     }
-    if (resolved.damage > 0 || receiver.poison > 0) onDamage(source,target);
-    return resolved.damage as number;
+    const supportReflection=support.reflect(targetSkill.id===709 ? targetSkill.level : 0,npc(source),loss);
+    if(supportReflection>0)onSupport(709,target,target);
+    const reflected = supportReflection + (fighter(target)
+      ? globals.BattlefieldReflection.reflectedSkillDamage(damage,target.stats,skill.melee===false) : 0);
+    if (reflected>0) {
+      const returned=periodicDamage(source,reflected,time);
+      if(returned>0){
+        source.hp=Math.max(0,source.hp-returned);
+        onDamage(target,source);
+      }
+    }
+    updateSupport(target,actors);
+    if (loss > 0 || receiver.poison > 0 || procPoison > 0) onDamage(source,target);
+    return damage;
   }
 
   function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void) {
-    if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || native.actorActionLocked(source) ||
+    if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || support.fear(source,world.clock) || native.actorActionLocked(source) ||
         target.dead || target.hp <= 0 || source.team === target.team) return false;
     const reach = skill.geo?.k === 'self' ? skill.geo.r || skill.rad : skill.rad;
     if (native.skillCastDistance(source,target) > reach + (target.r || 12) ||
@@ -173,7 +234,7 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     const targets = () => actors().filter(candidate => candidate.team !== source.team && !candidate.dead && candidate.hp > 0);
     try {
       globals.SkillCast.castSimulatorSkill(source,target,skill,valid,targets,
-        (ability: SimulatorSkill, defender: SharedCombatant) => strike(source,defender,ability),
+        (ability: SimulatorSkill, defender: SharedCombatant) => strike(source,defender,ability,actors),
         <T>(action: () => T) => actorContext(source,action),onRelease);
       return true;
     } catch(error) {
@@ -190,7 +251,15 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
   return (globals.S.potions || []).filter((potion:SharedPotion)=>level>=(native.be[potion.tier]||999))
     .map((potion:SharedPotion)=>({...potion,key:potion.kind+":"+potion.tier,price:native.Ot(potion)}));
 }
-return { statsFor, computerProfile, cast, advance, potionCatalog,
+return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage,
+  resetSupport: support.reset, fear: support.fear,
+  supportSpeed(actor:SharedCombatant,time:number){const {id,level}=supportSkill(actor.profile);return support.speed(actor,id,level,time);},
+  supportStatus(actor:SharedCombatant,time:number){
+    const {id,level}=supportSkill(actor.profile);
+    const activeId=id===712 || support.active(actor,time) ? id : 0;
+    const feared=!!support.fear(actor,time), cursed=!!support.resistance(actor,time);
+    return activeId || feared || cursed ? {id:activeId,speed:support.speed(actor,id,level,time),feared,cursed} : undefined;
+  },
   potionCooldown:native.ao as number,
   createPharmacy:globals.PharmacyRules.createWarSupplies as (host:Record<string,unknown>)=>SharedPharmacy,
   recover:globals.CombatEngine.applyPotionRecovery as (state:{life:number;mana:number;P:{life:number;mana:number}},resource:PotionResource,potion:SharedPotion)=>void,

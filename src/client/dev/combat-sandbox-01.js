@@ -247,7 +247,7 @@ var combatSandbox = (function () {
     if (!panel || !o || !I[o.fac]) return;
     panel.querySelectorAll("[data-faction]").forEach(button => button.classList.toggle("on", button.dataset.faction === o.fac));
     panel.querySelector("#arena-info").textContent = `${I[o.fac].n} · Cấp ${o.lvl} · ${o.skPts} điểm kỹ năng còn lại`;
-    panel.querySelector(".arena-skills").innerHTML = `<button type="button" data-skill="basic">Đánh thường</button>` + I[o.fac].skills.filter(id => o.sk[id] && T[id] && [90, 120, 150].includes(T[id].tier) && (UA(T[id]) || T[id].tier === 120)).map(id => `<button type="button" class="${+o.main === +id ? "on" : ""}" ${UA(T[id]) ? `data-skill="${id}"` : `data-skill-info="${id}"`} title="${T[id].tier === 120 ? "Xem chiêu hỗ trợ · chưa áp dụng hiệu ứng chiến đấu" : "Chọn làm chiêu chính"}">Lv${T[id].tier} · ${D(T[id].n)}</button>`).join("");
+    panel.querySelector(".arena-skills").innerHTML = `<button type="button" data-skill="basic">Đánh thường</button>` + I[o.fac].skills.filter(id => o.sk[id] && T[id] && [90, 120, 150].includes(T[id].tier) && (UA(T[id]) || T[id].tier === 120)).map(id => `<button type="button" class="${+o.main === +id ? "on" : ""}" ${UA(T[id]) ? `data-skill="${id}"` : `data-skill-info="${id}"`} title="${T[id].tier === 120 ? "Xem chiêu hỗ trợ tự kích hoạt" : "Chọn làm chiêu chính"}">Lv${T[id].tier} · ${D(T[id].n)}</button>`).join("");
   }
   panel.onclick = event => {
     const button = event.target.closest("button");
