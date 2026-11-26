@@ -61,7 +61,8 @@ var NP = function (A) {
       n.fillText(a.it.n, a.x, a.y - 28)),
       (n.globalAlpha = 1));
   }
-  if (typeof arenaSimulator !== "undefined" && arenaSimulator && typeof arenaSimulator.drawBattlefieldLoot === "function") arenaSimulator.drawBattlefieldLoot(n);
+  if (typeof sharedBattlefield !== "undefined" && sharedBattlefield.active) sharedBattlefield.drawLoot(n);
+  else if (typeof arenaSimulator !== "undefined" && arenaSimulator && typeof arenaSimulator.drawBattlefieldLoot === "function") arenaSimulator.drawBattlefieldLoot(n);
   typeof qm == "function" && qm(n, A);
   for (const a of l.corpses) {
     a.actT += A;
@@ -103,7 +104,9 @@ var NP = function (A) {
   for (const a of living) if (a.arenaSim && !simVisible(a) &&
       typeof arenaSimulator !== "undefined" && arenaSimulator?.advanceAnimation)
     arenaSimulator.advanceAnimation(a, A, true);
-  const crowd = crowdRenderer.update(living, A,
+  const shared = typeof sharedBattlefield!=="undefined" && sharedBattlefield.active;
+  const computeCrowd = shared ? sharedBattlefield.crowdFrame.bind(null,crowdRenderer) : crowdRenderer.update;
+  const crowd = computeCrowd(living, A,
     { x: B0.x, y: B0.y, width: worldViewWidth(), height: worldViewHeight() },
     new Set([l.tgt, l.manTgt, l.clickedTarget].filter(Boolean)),
     l.txt.filter((label) => label.life > 0 && label.target && label.target !== v &&
@@ -111,7 +114,7 @@ var NP = function (A) {
       .map((label) => label.target));
   // Animation clocks still advance for hidden bodies. Simulation never uses
   // the representative set; only sprite/nameplate drawing is reduced.
-  for (const a of living) if (!a.arenaSim) {
+  for (const a of living) if (!a.arenaSim && (!shared || crowd.bodies.has(a))) {
     a.animKey = r0[a.tid].anim;
     H8(a, a.stun > 0 ? 0 : A, a.moving ? "run" : "st");
     if (a.act !== "at" && a.act !== "hurt" && a.act !== "die")

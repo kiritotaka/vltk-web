@@ -5,7 +5,7 @@ import type { CharacterSlot } from './market-character-inventory.ts';
 type Item = { uid: number; n: string; d: number; lock?: boolean; ktc?: unknown };
 type State = { inv?: unknown[]; [key: string]: unknown };
 type Change = { slot: CharacterSlot; unit: 'gold' | 'knb'; delta: number } |
-  { slot: CharacterSlot; add: Item[] } | { slot: CharacterSlot; remove: number };
+  { slot: CharacterSlot; add: Item[] } | { slot: CharacterSlot; remove: number } | { slot: CharacterSlot; warMerit: number } | { slot: CharacterSlot; warGoods: Record<string,number> };
 type Approval = { id: string; uid: number; digest: string; consumed: number };
 
 function error(message: string): never {
@@ -172,6 +172,32 @@ export function legacyMarketInventory(db: DatabaseSync) {
     return { generation, changes: cursor === current ? changes : null };
   }
 
+  function addWarMerit(owner:string, slot:CharacterSlot, points:number) {
+    if (!Number.isSafeInteger(points) || points<=0) error("Điểm quân trạng không hợp lệ.");
+    const save=load(owner,slot);
+    const mats=(save.state.mats ??= {}) as Record<string,unknown>;
+    const misc=(mats.misc ??= {}) as Record<string,number>;
+    const before=Number.isSafeInteger(misc.tk_merit) && misc.tk_merit>0 ? misc.tk_merit : 0;
+    if (!Number.isSafeInteger(before+points)) error("Quân trạng vượt giới hạn lưu trữ.");
+    misc.tk_merit=before+points;
+    db.prepare("UPDATE account_storage SET value=? WHERE account_id=? AND key=?").run(save.encode(),owner,slot);
+    recordUpdate(owner,{slot,warMerit:points});
+  }
+
+  function addWarGoods(owner:string,slot:CharacterSlot,goods:Record<string,number>) {
+    const save=load(owner,slot);
+    const mats=(save.state.mats ??= {}) as Record<string,unknown>;
+    const misc=(mats.misc ??= {}) as Record<string,number>;
+    for(const [kind,amount] of Object.entries(goods)){
+      if(!/^[a-zA-Z]+$/.test(kind)||!Number.isSafeInteger(amount)||amount<=0)error("Vật phẩm Tống Kim không hợp lệ.");
+      const key="tk_"+kind,before=Number.isSafeInteger(misc[key])&&misc[key]>0?misc[key]:0;
+      if(!Number.isSafeInteger(before+amount))error("Số lượng vật phẩm vượt giới hạn.");
+      misc[key]=before+amount;
+    }
+    db.prepare("UPDATE account_storage SET value=? WHERE account_id=? AND key=?").run(save.encode(),owner,slot);
+    recordUpdate(owner,{slot,warGoods:goods});
+  }
+
   function changeBalance(owner: string, slot: CharacterSlot, unit: 'gold' | 'knb', delta: number) {
     const save = load(owner, slot);
     const amount = Number(save.state[unit] ?? 0);
@@ -305,5 +331,5 @@ export function legacyMarketInventory(db: DatabaseSync) {
     });
   }
 
-  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment, changeBalance, updates };
+  return { approve, baseline, check, sanitize, take, available, receiveTrustedEquipment, syncEquipment, changeBalance, updates, addWarMerit, addWarGoods };
 }

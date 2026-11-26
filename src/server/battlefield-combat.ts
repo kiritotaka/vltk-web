@@ -47,6 +47,7 @@ function getCombatScripts() {
     ['simulator/defense.ts', 'SkillDefense'],
     ['simulator/balance.ts', 'BattlefieldBalance'],
     ['simulator/reflection.ts', 'BattlefieldReflection'],
+    ['simulator/war-rewards.ts', 'WarItemRules'],
   ].map(([file,name])=>new vm.Script(compileTypeScriptEntry(file,name).code,{filename:file})).concat(
     new vm.Script(fs.readFileSync(path.join(ROOT,'src/client/combat/legacy-bridge.js'),'utf8'),{filename:'combat/legacy-bridge.js'}),
   );
@@ -162,5 +163,6 @@ export function createBattlefieldCombat(onDamage: (source: SharedCombatant, targ
     world.clock += dt;
     globals.CombatEngine.advanceSkillContacts(dt);
   }
-  return { statsFor, computerProfile, cast, advance, speed:(actor:SharedCombatant)=>native.actorMovementSpeed(actor) as number, locked: (actor: SharedCombatant) => native.actorActionLocked(actor) as boolean };
+  return { statsFor, computerProfile, cast, advance,
+    items: globals.WarItemRules.WAR_ITEMS as Record<string,{name:string;icon:string;color:string}>, speed:(actor:SharedCombatant)=>native.actorMovementSpeed(actor) as number, locked: (actor: SharedCombatant) => native.actorActionLocked(actor) as boolean };
 }

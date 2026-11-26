@@ -5,6 +5,8 @@ import { createBattlefieldRoster } from './battlefield-roster.ts';
 import { createBattlefieldFight } from './battlefield-fight.ts';
 import { parseBattlefieldMove } from './battlefield-movement.ts';
 import { parseJsonBody, sendJson } from './http.ts';
+import { legacyMarketInventory } from './market-legacy-inventory.ts';
+import type { CharacterSlot } from './market-character-inventory.ts';
 
 const slots = new Set(['jxidle','jxidle_2','jxidle_3']);
 const stepSeconds = 1 / 30;
@@ -16,6 +18,30 @@ export function registerSharedBattlefield(
   app: FastifyInstance, db: DatabaseSync, requireUser: (request: FastifyRequest) => { id: string }, now = Date.now, populate = true,
 ) {
   const roster = createBattlefieldRoster(now);
+  const inventory = legacyMarketInventory(db);
+  const recipients = new Map<string,{accountId:string;slot:CharacterSlot;pending:number;goods:Record<string,number>}>();
+  let nextSettlement = 0;
+  function earn(id:string,points:number) {
+    const recipient = recipients.get(id);
+    if (recipient) recipient.pending+=points;
+  }
+  function collect(id:string,kind:string) {
+    const recipient=recipients.get(id);
+    if(recipient)recipient.goods[kind]=(recipient.goods[kind]||0)+1;
+  }
+  function settle() {
+    const credits=[...recipients.values()].filter(recipient=>recipient.pending>0 || Object.keys(recipient.goods).length);
+    if(!credits.length)return;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      for(const credit of credits){
+        if(credit.pending>0) inventory.addWarMerit(credit.accountId,credit.slot,credit.pending);
+        if(Object.keys(credit.goods).length) inventory.addWarGoods(credit.accountId,credit.slot,credit.goods);
+      }
+      db.exec("COMMIT");
+      for (const credit of credits) { credit.pending=0; credit.goods={}; }
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   const select = db.prepare('SELECT value FROM account_storage WHERE account_id=? AND key=?');
   let current: { id:string; fight:ReturnType<typeof createBattlefieldFight>; time:number; endsAt:number; rosterKey:string; armyAt:number } | undefined;
   function advance(endsAt: number) {
@@ -61,6 +87,10 @@ export function registerSharedBattlefield(
       if (!current || current.time >= current.endsAt-1) return;
       try {
         advance(current.endsAt);
+        if (now()>=nextSettlement) {
+          nextSettlement=now()+1000;
+          try { settle(); } catch(error) { console.error("Không ghi được quân trạng Tống Kim",error); }
+        }
         if (current.time>=current.armyAt) {
           const room=roster.active();
           if (room) arrange(room);
@@ -72,7 +102,7 @@ export function registerSharedBattlefield(
       }
     },1000/30);
     timer.unref();
-    app.addHook("onClose",async()=>{clearInterval(timer);});
+    app.addHook("onClose",async()=>{clearInterval(timer);settle();});
   }
 
   app.post('/api/battlefield/shared/join', (request,reply) => {
@@ -96,8 +126,12 @@ export function registerSharedBattlefield(
     const room = roster.join(id,team,character.name);
     if (!room.player) return invalid('Không lấy được suất tham chiến.',409);
     try {
-      if (room.matchId !== current?.id) current = { id:room.matchId, fight:createBattlefieldFight(), time:now(), endsAt:room.endsAt, rosterKey:"", armyAt:0 };
+      if (room.matchId !== current?.id) {
+        settle();recipients.clear();
+        current = { id:room.matchId, fight:createBattlefieldFight(earn,collect), time:now(), endsAt:room.endsAt, rosterKey:"", armyAt:0 };
+      }
       current.fight.join(room.player.id,team,character);
+      if(!recipients.has(room.player.id)) recipients.set(room.player.id,{accountId:id,slot:slot as CharacterSlot,pending:0,goods:{}});
     } catch (error) {
       roster.leave(id,room.matchId,room.player.id);
       throw error;
@@ -117,7 +151,7 @@ export function registerSharedBattlefield(
       return current?.fight.moveInput(participantId,direction,elapsed) ?? previous;
     });
     if (!current || matchId !== current.id) return invalid('Trận đấu đã kết thúc.',409);
-    if (now !== Date.now) advance(room.endsAt);
+    if (now !== Date.now) { advance(room.endsAt);settle(); }
     if (!room.finished && skill !== undefined) current.fight.selectSkill(participantId,skill as number | null);
     if (!room.finished && target !== undefined) current.fight.chooseTarget(participantId,target as string | null);
     return sendJson(reply,200,output(room));
@@ -128,6 +162,7 @@ export function registerSharedBattlefield(
     const { matchId, participantId } = command(request);
     if (typeof matchId !== 'string' || typeof participantId !== 'string') return invalid('Mã trận hoặc mã tham gia không hợp lệ.');
     const room = roster.leave(id,matchId,participantId);
+    settle();
     if (current?.id === matchId) current.fight.leave(participantId);
     return sendJson(reply,200,output(room));
   });

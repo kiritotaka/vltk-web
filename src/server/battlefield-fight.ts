@@ -32,11 +32,12 @@ interface Player extends SharedCombatant {
   home: Point; reward: number; returnAt: number; route: number; waypoint: number;
 }
 
-export function createBattlefieldFight() {
+export function createBattlefieldFight(earned?: (id:string,points:number)=>void, collected?: (id:string,kind:string)=>void, random=Math.random) {
   const players = new Map<string, Player>();
   const score: Record<BattlefieldTeam,number> = { song: 0, jin: 0 };
   const latestHit = new Map<string, { player: Player; time: number }>();
-  let time = 0, nextSearch = 0;
+  let time = 0, nextSearch = 0, nextDropCheck=0, dropId=0;
+  const drops: Array<Point & {id:number;kind:string; team:BattlefieldTeam; until:number}> = [];
   const aiProfiles = new Map<string,{profile:SimulatorProfile;stats:SharedCombatant["stats"]}>();
 
   function respawn(player: Player) {
@@ -47,6 +48,12 @@ export function createBattlefieldFight() {
       const merit = player.kind === "player" || player.kind === "sim" ? player.reward*rank : player.reward;
       score[hit.player.team] += merit;
       hit.player.points += merit;
+      if (hit.player.kind === "player") earned?.(hit.player.id,merit);
+      if (player.kind === "npc" && random() < .35) {
+        const kinds=Object.keys(combat.items);
+        if(drops.length>=40)drops.shift();
+        drops.push({id:++dropId,x:player.x,y:player.y,team:hit.player.team,kind:kinds[Math.floor(random()*kinds.length)],until:time+90});
+      }
     }
     latestHit.delete(player.id);
     if (player.kind !== "player") {
@@ -225,6 +232,7 @@ export function createBattlefieldFight() {
       if (!cast && player.kind !== "player" && (!target || target.dead || Math.hypot(target.x-player.x,(target.y-player.y)*2)>player.stats.main.rad)) moveComputer(player,target?.dead?undefined:target,dt);
     }
     combat.advance(dt);
+    if(time>=nextDropCheck){collectNearby();nextDropCheck=time+.1;}
   }
 
   function pruneHumans(active:Set<string>) {
@@ -245,11 +253,32 @@ export function createBattlefieldFight() {
     if (!actor) return;
     if (skillId === null || skillId === 0 || actor.stats.actives?.some((skill:SharedCombatant["stats"]["main"])=>skill.id===skillId)) actor.skillId=skillId;
   }
+  function collectNearby() {
+    for(let index=drops.length-1;index>=0;index--){
+      const drop=drops[index];
+      if(drop.until<=time){drops.splice(index,1);continue;}
+      for(const player of players.values()){
+        if(player.kind!=="player"||player.team!==drop.team||player.hp<=0||Math.hypot(player.x-drop.x,(player.y-drop.y)*2)>80)continue;
+        const inventory=player.profile.mats?.misc ?? {};
+        const stock=Math.max(0,Number(inventory["tk_"+drop.kind])||0);
+        const warSlots=Object.keys(combat.items).reduce((count,kind)=>count+Math.ceil((Number(inventory["tk_"+kind])||0)/50),0);
+        const capacity=60+60*Math.max(0,Math.min(3,Number(player.profile.invX)||0));
+        const specialSlots=["vlmt","ttk","rngua","ldt"].filter(kind=>Number(inventory[kind])>0).length;
+        if(stock%50===0 && player.profile.inv.length+warSlots+specialSlots>=capacity)continue;
+        player.profile.mats??={};player.profile.mats.misc??={};
+        player.profile.mats.misc["tk_"+drop.kind]=stock+1;
+        collected?.(player.id,drop.kind);
+        drops.splice(index,1);break;
+      }
+    }
+  }
   function snapshot(viewerId?:string) {
     const viewer = viewerId ? players.get(viewerId) : undefined;
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
     return {
       score:{...score},
+      drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
+        .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,
         mana:player.mana, deaths:player.deaths, points:player.points, faction:player.profile.fac, kind:player.kind, tid:player.tid, dead:!!player.dead, casts:player.casts,

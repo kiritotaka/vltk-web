@@ -65,6 +65,7 @@ var sharedBattlefield = (() => {
     session.position=me;
     l.life=me.hp;l.mana=me.mana;
     const visible=new Set();
+    let changedActors=false;
     for (const actor of state.combat.players) {
       if (actor.id===me.id || actor.dead || Math.abs(actor.x-me.x)>1250 || Math.abs(actor.y-me.y)>1000) continue;
       visible.add(actor.id);
@@ -75,6 +76,7 @@ var sharedBattlefield = (() => {
           series:0, cls:actor.kind==='marshal'?'boss':'normal', sz:1, face:1, act:'st', actT:0, r:16,
           battlefieldTeam:actor.team, battlefieldMonster:true, sharedActor:true };
         entities.set(actor.id,entity);
+        changedActors=true;
       }
       if (entity.casts !== undefined && entity.casts !== actor.casts) { entity.act="at"; entity.actT=0; }
       entity.casts=actor.casts;
@@ -82,9 +84,12 @@ var sharedBattlefield = (() => {
     }
     for (const [id,entity] of entities) {
       if (visible.has(id)) continue;
-      entity.dead=true; entities.delete(id);
+      entity.dead=true; entities.delete(id); changedActors=true;
     }
-    l.enemies=[...entities.values()];
+    if(changedActors) {
+      session.crowd=undefined;
+      l.enemies=[...entities.values()];
+    }
     if (state.finished && !session.finished) {
       session.finished=true;
       ranking();
@@ -119,6 +124,7 @@ var sharedBattlefield = (() => {
     m('#townBar')?.classList.toggle('hidden',!l.town);
     Y.target=null;
     if (remote) await request('leave',current.ref).catch(()=>{});
+    await window.localGameStorage?.syncMarket?.();
   }
 
   async function join(team) {
@@ -166,6 +172,31 @@ var sharedBattlefield = (() => {
     return nearest;
   }
 
+  function drawLoot(context) {
+    if (!session) return;
+    for (const item of session.state.combat.drops || []) {
+      if (item.x<B0.x-24 || item.x>B0.x+worldViewWidth()+24 || item.y<B0.y-24 || item.y>B0.y+worldViewHeight()+24)continue;
+      const image=bA(item.icon);
+      if (image?.naturalWidth) context.drawImage(image,item.x-9,item.y-18,18,18);
+      else { context.fillStyle=item.color;context.fillRect(item.x-4,item.y-8,8,8); }
+    }
+  }
+  function lootTarget(current) {
+    if(o.ctrl==="manual" || !WA().auto)return null;
+    let best=220,match=null;
+    const now=performance.now();
+    for(const item of current.state.combat.drops||[]){
+      const gap=Math.hypot(item.x-v.x,(item.y-v.y)*2);
+      if(gap>80&&gap<best&&!(current.skipLoot?.id===item.id&&now<current.skipLoot.until)){
+        best=gap;match=item;
+      }
+    }
+    if(!match){current.lootProgress=null;return null;}
+    const prior=current.lootProgress;
+    if(prior?.id!==match.id||best<prior.best-8)current.lootProgress={id:match.id,best,at:now};
+    else if(now-prior.at>=3000){current.skipLoot={id:match.id,until:now+12000};current.lootProgress=null;return null;}
+    return match;
+  }
   function tick(dt) {
     const current=session;
     if (!current?.position) return;
@@ -173,7 +204,15 @@ var sharedBattlefield = (() => {
     const mix=Math.min(1,dt*12);
     v.x+=(current.position.x-v.x)*mix;
     v.y+=(current.position.y-v.y)*mix;
+    const scene = typeof B0!=="undefined" ? B0 : null;
+    const viewWidth = scene ? worldViewWidth() : 0;
+    const viewHeight = scene ? worldViewHeight() : 0;
     for (const actor of entities.values()) {
+      if (scene && (actor.remoteX<scene.x-140 || actor.remoteX>scene.x+viewWidth+140 ||
+          actor.remoteY<scene.y-140 || actor.remoteY>scene.y+viewHeight+140)) {
+        actor.x=actor.remoteX;actor.y=actor.remoteY;actor.moving=false;
+        continue;
+      }
       const x=actor.remoteX-actor.x,y=actor.remoteY-actor.y;
       actor.moving=Math.abs(x)+Math.abs(y)>1;
       if(actor.moving) { actor.face=x<0?-1:1;actor.dir=kn(x,y); }
@@ -181,9 +220,11 @@ var sharedBattlefield = (() => {
     }
     if(current.finished || current.sending || performance.now()<current.nextSync) return;
     let [x,y]=Qv();
-    const aim=target();
-    if (!x&&!y&&aim && Math.hypot(aim.x-v.x,(aim.y-v.y)*2)>Math.max(75,l.P?.main?.rad||75)) {
-      const dx=aim.x-v.x,dy=aim.y-v.y,length=Math.hypot(dx,dy)||1;
+    const loot=!x&&!y ? lootTarget(current) : null;
+    const aim=loot ? null : target();
+    const chase=loot || (aim && Math.hypot(aim.x-v.x,(aim.y-v.y)*2)>Math.max(75,l.P?.main?.rad||75) && aim);
+    if (!x&&!y&&chase) {
+      const dx=chase.x-v.x,dy=chase.y-v.y,length=Math.hypot(dx,dy)||1;
       x=dx/length;y=dy/length;
     }
     const scale=Math.max(1,Math.hypot(x,y));
@@ -200,8 +241,22 @@ var sharedBattlefield = (() => {
       })
       .finally(()=>{current.sending=false;});
   }
+  function crowdFrame(renderer,actors,dt,view,selected,labels) {
+    const current=session;
+    const previous=current?.crowd;
+    const focus=[...selected].map(actor=>actor.id).join(",");
+    if (previous && performance.now()-previous.time<80 && focus===previous.focus &&
+        Math.abs(view.x-previous.x)<36 && Math.abs(view.y-previous.y)<36 &&
+        view.width===previous.width && view.height===previous.height && actors.length===previous.count) {
+      previous.elapsed+=dt;
+      return previous.frame;
+    }
+    const frame=renderer.update(actors,dt+(previous?.elapsed||0),view,selected,labels);
+    if(current)current.crowd={ ...view,count:actors.length,focus,time:performance.now(),elapsed:0,frame };
+    return frame;
+  }
   document.addEventListener('keydown',event=>{
     if(session && event.key==='Escape' && m('#modal')?.classList.contains('hidden')) { event.stopImmediatePropagation();ranking(); }
   },true);
-  return {open,tick,get active(){return !!session;},get team(){return session?.state.player.team;}};
+  return {open,tick,crowdFrame,drawLoot,get active(){return !!session;},get team(){return session?.state.player.team;}};
 })();

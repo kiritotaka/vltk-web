@@ -2,7 +2,7 @@
 
 Chiêu Mộ Sứ mở trận chung Hoang Nguyên trên máy chủ. Mỗi phe dành 100 suất cho người chơi và SIM, cộng 35 lính NPC. SIM nhường suất cho người thật, và máy chủ thu hồi suất sau 30 giây mất kết nối. Trận kéo dài 20 phút. Người chơi trở về doanh trại ngay khi bị hạ. Bảng điểm trong trận do máy chủ gửi cho các phiên tham chiến.
 
-Trận chung sử dụng kỹ năng tấn công và trang bị từ save khi vào trận. Vật phẩm tiếp tế, bẫy và quân trạng tích lũy hiện có trong trận thử. GM/Admin có thể mở trận thử từ Chiêu Mộ Sứ để cấu hình đội hình.
+Trận chung sử dụng kỹ năng tấn công và trang bị từ save khi vào trận. Quân trạng kiếm được và vật phẩm nhặt được trong trận chung được cộng vào save của nhân vật. Dùng vật phẩm tiếp tế, đặt bẫy và mua từ Quan Quân Nhu trong trận dùng giao diện trận thử. GM/Admin có thể mở trận thử từ Chiêu Mộ Sứ để cấu hình đội hình.
 
 ## Trận thử
 

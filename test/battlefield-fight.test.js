@@ -97,6 +97,12 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
     assert.deepEqual(seenByRed.combat.score,result.combat.score);
     const returned=seenByRed.combat.players.find(player=>player.id===redRef.participantId);
     assert.equal(returned.deaths,1); assert.equal(returned.hp,returned.max);
+    const owner=db.prepare("SELECT id FROM accounts WHERE username=?").get("shared_tong");
+    const merit=()=>JSON.parse(db.prepare("SELECT value FROM account_storage WHERE account_id=? AND key=?").get(owner.id,"jxidle").value).mats.misc.tk_merit;
+    assert.equal(merit(),150);
+    await post(blue,"sync",blueRef);
+    await post(blue,"sync",blueRef);
+    assert.equal(merit(),150);
   } finally { await app.close();db.close(); }
 });
 
@@ -150,4 +156,27 @@ test('normal Fastify server runs the shared room with live troop slots',async()=
     assert.equal(left.json().teams.jin.sims,100);
     assert.equal(left.json().combat.players.filter(actor=>actor.kind==='player').length,1);
   } finally {await app.close();db.close();}
+});
+
+test('shared NPC loot belongs to its team and one drop can only be collected once',()=>{
+  const {nativeScope}=createNativeProfileScope(process.cwd());
+  const delivered=[];
+  const fight=createBattlefieldFight(undefined,(id,kind)=>delivered.push([id,kind]),()=>0);
+  const profile=Object.assign(nativeScope.I3(),{fac:'wudang',name:'Loot test',lvl:100,main:'basic'});
+  profile.attr.str=10_000_000;
+  fight.join('looter','song',profile);
+  for(let n=0;n<151;n++)fight.tick(1/30);
+  fight.army({song:[],jin:[]});
+  const id='jin-npc-0';
+  fight.move(id,720,2784);
+  fight.chooseTarget('looter',id);
+  for(let n=0;n<150;n++)fight.tick(1/30);
+  if (!delivered.length) {
+    const found=fight.snapshot('looter').drops;
+    assert.ok(found.length,JSON.stringify({score:fight.snapshot().score,actors:fight.snapshot().players.filter(actor=>actor.id===id||actor.id==="looter")}));
+    fight.move('looter',found[0].x,found[0].y);
+    for(let n=0;n<6;n++)fight.tick(1/30);
+  }
+  assert.deepEqual(delivered,[['looter','resistance']]);
+  assert.equal(fight.snapshot('looter').drops.length,0);
 });

@@ -34,6 +34,13 @@ test('Chiêu Mộ Sứ joins an online room, displays remote actors and restores
   assert.equal(s.sharedBattlefield.active,true);
   assert.equal(s.Z0.key,9003);
   assert.equal(s.l.enemies[0].id,'enemy');
+  const renderer={ count:0,update(){ this.count++; return {}; } };
+  const view={x:500,y:2400,width:800,height:600};
+  s.sharedBattlefield.crowdFrame(renderer,s.l.enemies,.016,view,new Set(),[]);
+  s.sharedBattlefield.crowdFrame(renderer,s.l.enemies,.016,view,new Set(),[]);
+  assert.equal(renderer.count,1);
+  s.sharedBattlefield.crowdFrame(renderer,s.l.enemies,.016,view,new Set([s.l.enemies[0]]),[]);
+  assert.equal(renderer.count,2,"selected bodies invalidate the cache");
   s.l.clickedTarget=s.l.enemies[0];
   s.sharedBattlefield.tick(.1);
   await new Promise(resolve=>setImmediate(resolve));

@@ -92,7 +92,24 @@
   const persist = () => native.set.call(storage, OUTBOX, JSON.stringify({ generation, queue }));
   function applyChanges(character, changes) {
     for (const change of changes) {
-      if (change.unit) {
+      if (change.warGoods) {
+        character.mats ??= {};
+        const misc = character.mats.misc ??= {};
+        for (const [kind,amount] of Object.entries(change.warGoods)) {
+          const key="tk_"+kind;
+          const before=Number.isSafeInteger(misc[key]) && misc[key]>0 ? misc[key] : 0;
+          const next=before+amount;
+          if (!Number.isSafeInteger(next)) throw new Error("Số lượng vật phẩm vượt giới hạn.");
+          misc[key]=next;
+        }
+      } else if (change.warMerit) {
+        character.mats ??= {};
+        const misc = character.mats.misc ??= {};
+        const before = Number.isSafeInteger(misc.tk_merit) && misc.tk_merit>0 ? misc.tk_merit : 0;
+        const next = before + change.warMerit;
+        if (!Number.isSafeInteger(next)) throw new Error("Quân trạng vượt giới hạn lưu trữ.");
+        misc.tk_merit = next;
+      } else if (change.unit) {
         const amount = Number(character[change.unit] ?? 0) + change.delta;
         if (!Number.isSafeInteger(amount)) throw new Error('Số dư nhân vật không hợp lệ.');
         character[change.unit] = amount;
