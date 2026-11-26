@@ -307,6 +307,9 @@ var localMarket = (() => {
   return { open, renderInventory, characterChanged };
 })();
 
+const compactMarketButton = typeof document !== 'undefined' && document.getElementById?.('mktBtn');
+if (compactMarketButton) compactMarketButton.onclick = () => localMarket.open();
+
 if (typeof Y0 === 'function') {
   const upstreamMarketPanel = Y0;
   Y0 = function (tab, ...args) {

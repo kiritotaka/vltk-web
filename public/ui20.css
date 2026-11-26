@@ -24,6 +24,7 @@ body.u20 #panel::before{display:none!important}
 /* Only the round Reward button gets a badge when claimable rewards exist. */
 #u20gift{position:relative}
 #u20gift.on::after{content:"";position:absolute;top:0;right:0;width:9px;height:9px;border-radius:50%;background:#e0402a;box-shadow:0 0 0 2px #0f1613;pointer-events:none;animation:gpulse 1.2s infinite}
+#top #mktBtn{flex:none;width:44px;height:44px;touch-action:manipulation}
 #u20gold{position:fixed;right:6px;z-index:8;display:flex;gap:10px;color:#ffd970;font-weight:700;font-size:12px;text-shadow:0 1px 2px #000,0 0 3px #000}
 #u20gold img{width:15px;height:15px;vertical-align:-3px;margin-right:2px}
 /* cot hoat dong ben phai */
