@@ -59,6 +59,8 @@ function getCombatScripts() {
     ['simulator/balance.ts', 'BattlefieldBalance'],
     ['simulator/reflection.ts', 'BattlefieldReflection'],
     ['simulator/war-rewards.ts', 'WarItemRules'],
+    ['simulator/equipment.ts', 'ArmyGear'],
+    ['simulator/war-mounts.ts', 'WarMounts'],
     ['gameplay/quartermaster/model.ts', 'QuartermasterRules'],
     ['simulator/supplies.ts', 'PharmacyRules'],
   ].map(([file,name])=>new vm.Script(compileTypeScriptEntry(file,name).code,{filename:file})).concat(
@@ -132,17 +134,40 @@ export function createBattlefieldCombat(
         .filter((skill:LegacyScope)=>native.UA(skill) && profile.lvl >= (skill.req||0));
       const selected=skills.find((skill:LegacyScope)=>skill.tier===90) || skills[0];
       if (!selected) throw new Error('Không có võ công tấn công cho SIM '+faction);
-      const weapon=native.j1(selected);
-      if (weapon!==null && weapon!==9) {
-        const kind=weapon===7 || weapon>=100 ? 1 : 0;
-        const type=weapon===7 ? 0 : weapon>=100 ? weapon-100 : weapon;
-        const catalog=globals.S.items[kind]?.list || [];
-        const template=catalog.filter((item:LegacyScope)=>item.k===type).sort((a:LegacyScope,b:LegacyScope)=>a.lvl-b.lvl)[0];
-        if(template)profile.eq.weapon={...template,d:kind,k:type,mag:[]};
-      }
-      profile.sk[selected.id]=Math.min(10,selected.max||10);
+      const school=globals.I[faction];
+      profile.sex=native.Zt[faction]||0;
+      profile.attr={str:0,dex:0,vit:0,eng:0};
+      profile.attrPts=(profile.lvl-1)*native.z2;
+      const weaponCode=native.j1(selected);
+      const weapon=weaponCode===null ? native.Kr(school) : weaponCode===7 ? [1,0] :
+        weaponCode>=100 ? [1,weaponCode-100] : [0,weaponCode===-1||weaponCode===9 ? 6 : weaponCode];
       profile.main=selected.id;
       profile.mainLock=true;
+      profile.slots=[selected.id];
+      for(const skill of skills)if(skill.tier===90 || skill.tier===150){
+        const level=Math.min(10,skill.max||10);
+        profile.sk[skill.id]=level;
+        (profile.skL ||= {})[skill.id]={lv:level,xp:0};
+        (profile.bkOk ||= {})[skill.id]=1;
+      }
+      if(!profile.sk[selected.id]) profile.sk[selected.id]=Math.min(10,selected.max||10);
+      const original=globals.o;
+      try {
+        globals.o=profile;
+        profile.eq=globals.ArmyGear.createArmyEquipment(native.equipmentTrader,{
+          sex:profile.sex,level:profile.lvl,factionId:school.id,series:school.series,weapon,
+          points:profile.attrPts,enh:0,strength:"normal",
+        },native.G5,native.V2,globals.Math.random);
+        const horse=globals.WarMounts.chooseWarMount(globals.S.items[10]?.list||[],profile.lvl,"random",globals.Math.random);
+        if(horse)profile.eq.horse={...horse,d:10,mag:[]};
+        native.j5();
+        const offense=selected.phys ? "str" : "eng";
+        const offensivePoints=Math.floor(profile.attrPts*.6);
+        profile.attr[offense]+=offensivePoints;
+        profile.attr.vit+=profile.attrPts-offensivePoints;
+        profile.attrPts=0;
+        if(Object.values(profile.eq).some(item=>!native.p0(item)))throw new Error('SIM chưa đủ điều kiện mặc bộ đồ '+faction);
+      } finally {globals.o=original;}
     }
     const stats=statsFor(profile);
     if(sectSkill && stats.main.id!==profile.main) throw new Error('SIM chưa dùng được võ công '+faction);

@@ -179,6 +179,7 @@ test('normal Fastify server runs the shared room with live troop slots',async(t)
     assert.equal(rooms[1].combat.players.filter(actor=>actor.kind==='player').length,2);
     const sim=rooms[1].combat.players.find(actor=>actor.kind==='sim');
     assert.ok(sim?.appearance,"SIM has a humanoid appearance");
+    assert.ok(sim.appearance.eq.weapon && sim.appearance.eq.armor && sim.appearance.eq.helm && sim.appearance.eq.horse);
     assert.ok(sim.faction);
     const joined=rooms[1];
     const left=await send(cookies[1],'/api/battlefield/shared/leave',{matchId:joined.matchId,participantId:joined.player.id});
@@ -399,4 +400,23 @@ test('held movement advances every server tick and expires without a new directi
   const stopped=pos();
   fight.tick(1/30);
   assert.equal(pos(),stopped);
+});
+
+test('all ten SIM factions use the GM ten-slot equipment builder and can equip it',()=>{
+  const {createBattlefieldCombat}=require('../src/server/battlefield-combat.ts');
+  const combat=createBattlefieldCombat(()=>{});
+  const factions=['shaolin','tianwang','tangmen','wudu','emei','cuiyan','gaibang','tianren','wudang','kunlun'];
+  for(const faction of factions){
+    const {profile,stats}=combat.computerProfile(faction,true);
+    for(const slot of ['weapon','armor','helm','amulet','belt','cuff','boot','pendant','ring1','ring2']){
+      const item=profile.eq[slot];
+      assert.equal(item.lvl,10,faction+' '+slot);
+      assert.equal(new Set(item.mag.map(entry=>entry.a)).size,5);
+    }
+    assert.ok(profile.eq.horse,faction);
+    assert.equal(stats.main.id,profile.main,faction);
+    assert.equal(profile.sk[profile.main],10,faction);
+    assert.ok(stats.main.L>=10,faction+" effective skill includes equipment bonuses");
+  }
+  assert.equal(Object.keys(combat.computerProfile('shaolin').profile.eq).length,0);
 });
