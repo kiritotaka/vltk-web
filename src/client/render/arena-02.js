@@ -120,7 +120,8 @@ var NP = function (A) {
   // Animation clocks still advance for hidden bodies. Simulation never uses
   // the representative set; only sprite/nameplate drawing is reduced.
   for (const a of living) if (!a.arenaSim && !a.sharedAvatar && (!shared || crowd.bodies.has(a))) {
-    a.animKey = r0[a.tid].anim;
+    a.animKey = r0[a.tid]?.anim;
+    if (!a.animKey) continue;
     H8(a, a.stun > 0 ? 0 : A, a.moving ? "run" : "st");
     if (a.act !== "at" && a.act !== "hurt" && a.act !== "die")
       ps(a, a.moving && !(a.stun > 0) ? "run" : "st");

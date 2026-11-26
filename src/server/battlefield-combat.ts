@@ -272,10 +272,14 @@ export function createBattlefieldCombat(
       (native.skillIgnoresTerrain(skill) || sight(source.x,source.y,target.x,target.y));
   }
 
+  function canCastMounted(actor:SharedCombatant,skill:SimulatorSkill) {
+    return native.E3(globals.T[Number(skill.id)],!!actor.mounted) as boolean;
+  }
+
   function cast(source: SharedCombatant,target: SharedCombatant,actors: () => SharedCombatant[], skill: SimulatorSkill, onRelease?:()=>void, closeAttack=false) {
     if (source.dead || source.hp <= 0 || source.cooldown > 0 || source.stun > 0 || support.fear(source,world.clock) || native.actorActionLocked(source) ||
         target.dead || target.hp <= 0 || source.team === target.team) return false;
-    if(!native.E3(globals.T[Number(skill.id)],!!source.mounted))return false;
+    if(!canCastMounted(source,skill))return false;
     if (!canReach(source,target,skill,closeAttack)) return false;
     const cost = skill.cost || 0;
     if (skill.costLife ? source.hp <= cost : source.mana < cost) return false;
@@ -304,7 +308,7 @@ export function createBattlefieldCombat(
   return (globals.S.potions || []).filter((potion:SharedPotion)=>level>=(native.be[potion.tier]||999))
     .map((potion:SharedPotion)=>({...potion,key:potion.kind+":"+potion.tier,price:native.Ot(potion)}));
 }
-return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage, inRange, canReach,
+return { statsFor, computerProfile, cast, advance, potionCatalog, updateSupport, periodicDamage, inRange, canReach, canCastMounted,
   canMount:(actor:SharedCombatant)=>actorContext(actor,()=>!!native.xe()), mountCooldown:native.aP as number,
   resetSupport: support.reset, fear: support.fear,
   supportSpeed(actor:SharedCombatant,time:number){const {id,level}=supportSkill(actor.profile);return support.speed(actor,id,level,time);},

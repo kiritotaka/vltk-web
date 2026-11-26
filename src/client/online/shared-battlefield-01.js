@@ -182,7 +182,7 @@ var sharedBattlefield = (() => {
       let entity=entities.get(actor.id);
       if (!entity) {
         const avatar=actor.kind==="player" || actor.kind==="sim";
-        const tid=avatar ? undefined : actor.tid;
+        const tid=avatar ? undefined : r0[actor.tid] ? actor.tid : r0[599] ? 599 : undefined;
         entity={ id:actor.id, n:actor.name, tid, x:actor.x, y:actor.y, hp:actor.hp, max:actor.max,
           series:0, cls:actor.kind==='marshal'?'boss':'normal', sz:1, face:1, act:'st', actT:0, r:16,
           battlefieldTeam:actor.team, battlefieldMonster:!avatar, sharedActor:true };
@@ -328,31 +328,49 @@ var sharedBattlefield = (() => {
       '<button class="btn" id="shared-war-song" type="button" disabled>Phe Tống</button>'+
       '<button class="btn" id="shared-war-jin" type="button" disabled>Phe Kim</button>'+
       (role==='gm'||role==='admin'?'<button class="btn" id="shared-war-manual" type="button" disabled>Mở trận chung</button>':'')+
-      '</div><p id="shared-war-status" role="status">Đang xem lịch Tống Kim…</p>',()=>{
+      '</div><div class="btnrow" id="shared-war-next" hidden style="display:none">'+
+      '<button class="btn" id="shared-war-next-song" type="button">Báo danh trận sau · Tống</button>'+
+      '<button class="btn" id="shared-war-next-jin" type="button">Báo danh trận sau · Kim</button></div>'+
+      '<p id="shared-war-status" role="status">Đang xem lịch Tống Kim…</p>',()=>{
         const status=m('#shared-war-status'),manual=m('#shared-war-manual');
         const buttons={song:m('#shared-war-song'),jin:m('#shared-war-jin')};
         let ready=false, registered=false;
         function show(state) {
-          const entering=state.phase==='active' && (!state.manual || !state.registrationOpen);
+          const entering=state.phase==='active';
           const registering=!entering && state.registrationOpen;
           const booking=state.registration;
+          const late=entering && !state.manual && !booking;
           const candidate=booking?.slot===y8() ? booking.team : null;
           const teamName=booking?.team==='song'?'Tống':'Kim';
           status.textContent=entering ? (state.manual || candidate ? 'Trận đang diễn ra đến '+format(state.endsAt)+'.' :
-            'Trận đang diễn ra. Lượt báo danh tiếp theo lúc '+format(state.registrationAt)+'.') :
+            late ? 'Trận đang diễn ra đến '+format(state.endsAt)+'. Bạn có thể báo danh và vào ngay.' :
+            'Hãy chọn đúng nhân vật đã báo danh phe '+teamName+'.') :
             registering ? (booking ? 'Đã báo danh phe '+teamName+'. Trận mở lúc ' : 'Đang báo danh. Trận mở lúc ')+format(state.nextStart)+'.' :
             'Báo danh lúc '+format(state.registrationAt)+'. Trận mở lúc '+format(state.nextStart)+'.';
           if(manual) manual.disabled=!state.canOpenManual;
+          const next=m('#shared-war-next');
+          if(next){
+            next.hidden=!(entering && state.manual && state.registrationOpen);
+            next.style.display=next.hidden?'none':'';
+          }
+          if(next && !next.hidden)for(const team of ['song','jin']){
+            const button=m('#shared-war-next-'+team);
+            button.disabled=!!booking;
+            button.onclick=async()=>{
+              const updated=await join(team,'register');
+              if(updated){ready=true;show(updated);}
+            };
+          }
           for(const [team,button] of Object.entries(buttons)){
             const name=team==='song'?'Tống':'Kim';
-            button.textContent=(registering?'Báo danh phe ':entering?'Vào phe ':'Phe ')+name;
-            button.disabled=registering ? !!booking : !entering || (!state.manual && team!==candidate);
+            button.textContent=(registering?'Báo danh phe ':late?'Báo danh & vào phe ':entering?'Vào phe ':'Phe ')+name;
+            button.disabled=registering ? !!booking : !entering || (late ? (state.teams?.[team]?.humans||0)>=100 : !state.manual && team!==candidate);
             button.onclick=async()=>{
               const updated=await join(team,registering?'register':'join');
               if(updated){ready=true;show(updated);}
             };
           }
-          if(entering && ready && candidate && !registered){
+          if(entering && !state.manual && ready && candidate && !registered){
             registered=true;
             void join(candidate);
           }
@@ -472,7 +490,8 @@ var sharedBattlefield = (() => {
     let [x,y]=[inputX,inputY];
     const loot=!x&&!y ? lootTarget(current) : null;
     const aim=loot ? null : target();
-    const rally=!aim && !loot && o.ctrl!=="manual" && Math.hypot(v.x-1792,v.y-1792)>80 ? {x:1792,y:1792} : null;
+    const rallyPoint=current.state.combat.rally || {x:1792,y:1792};
+    const rally=!aim && !loot && o.ctrl!=="manual" && Math.hypot(v.x-rallyPoint.x,v.y-rallyPoint.y)>18 ? rallyPoint : null;
     const attack=current.state.combat.attack || l.P?.main || {rad:75};
     const closeAttack=!!o.closeAtk && (typeof $1==="function" ? !$1() : o.ctrl!=="manual");
     const origin=current.position;
@@ -495,10 +514,11 @@ var sharedBattlefield = (() => {
     current.nextSync=now+(x||y||aim?125:300);
     current.sending=true;
     const skill=o.mainLock ? (o.main==='basic'?0:Number(o.main)||null) : null;
-    const selected=typeof T!=="undefined" ? T[skill ?? l.P?.main?.id] : null;
-    if(aim && !chase && selected && typeof tP==="function")tP({id:selected.id});
     current.mountSent=!!l.mounted;
-    void request('sync',{...current.ref,target:aim?.id||null,skill,mounted:current.mountSent,manualMove:!!manualMove,shortRange:closeAttack,
+    const mountChange=typeof current.position.mounted==="boolean" && current.mountSent!==current.position.mounted
+      ? {mounted:current.mountSent} : {};
+    const autoRide=typeof S3==="function" ? S3() : o.ctrl!=="manual" && o.autoRide!==false;
+    void request('sync',{...current.ref,target:aim?.id||null,skill,...mountChange,manualMove:!!manualMove,shortRange:closeAttack,autoRide,
       movement:{...current.predictedInput,sequence:++current.sequence}})
       .then(state=>{if(session===current) apply(state);})
       .catch(error=>{

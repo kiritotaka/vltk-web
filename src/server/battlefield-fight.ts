@@ -15,6 +15,7 @@ const layout = JSON.parse(readFileSync(new URL("../client/maps/content/9003/layo
   armySpawns: Record<BattlefieldTeam,Point[]>; marshals: Record<BattlefieldTeam,Point>;
   patrolPoints: Point[]; paths: [number,number][][];
 };
+const rallyPath=layout.paths[Math.floor(layout.paths.length/2)].filter((_,index)=>index%12===0);
 const authoredMap = JSON.parse(readFileSync(new URL("../client/maps/content/9003/map.json",import.meta.url),"utf8")) as {
   npcs: Array<{npcId:string;team?:BattlefieldTeam;position:Point}>;
 };
@@ -35,6 +36,7 @@ interface Player extends SharedCombatant {
   requestedTarget: string | null;
   movement?: { input:BattlefieldMove; until:number; manual:boolean };
   shortRange?:boolean;
+  autoRide?:boolean;
   skillId: number | null;
   casts:number;
   kind: "player" | "sim" | "npc" | "marshal";
@@ -299,6 +301,8 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       let cast = false;
       const manualMoving=player.movement?.manual && player.movement.until>time;
       if (target && !manualMoving) {
+        if(player.kind==="player" && player.autoRide && !combat.canCastMounted(player,skill) &&
+            combat.canReach(player,target,skill,closeAttack(player))) setMounted(player.id,!player.mounted);
         cast = combat.cast(player,target,actors,skill,()=>{
           if (visuals.length>=192)visuals.shift();
           visuals.push({id:++visualId,actor:player.id,x:player.x,y:player.y,tx:target.x,ty:target.y,
@@ -348,10 +352,11 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
     actor.mountReadyAt=time+combat.mountCooldown;
   }
 
-  function selectSkill(id:string,skillId:number|null|undefined,shortRange?:boolean) {
+  function selectSkill(id:string,skillId:number|null|undefined,shortRange?:boolean,autoRide?:boolean) {
     const actor=players.get(id);
     if (!actor) return;
     if(typeof shortRange==="boolean")actor.shortRange=shortRange;
+    if(typeof autoRide==="boolean")actor.autoRide=autoRide && actor.profile.autoRide!==false;
     if (skillId===undefined)return;
     if (skillId === null || skillId === 0 || actor.stats.actives?.some((skill:SharedCombatant["stats"]["main"])=>skill.id===skillId)) actor.skillId=skillId;
   }
@@ -495,6 +500,20 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       }
     }
   }
+  function rallyPoint(actor:Player) {
+    const side=actor.team==="song" ? 1 : -1;
+    const middle=Math.floor(rallyPath.length/2);
+    let best=Infinity, nearest=side===1 ? 0 : rallyPath.length-1;
+    for(let index=0;index<rallyPath.length;index++){
+      const [x,y]=rallyPath[index];
+      const distance=Math.hypot(x-actor.x,y-actor.y);
+      if(distance<best){best=distance;nearest=index;}
+    }
+    const next=best>70 ? nearest : side===1 ? Math.min(middle,nearest+1) : Math.max(middle,nearest-1);
+    const [x,y]=rallyPath[next];
+    return {x,y};
+  }
+
   function snapshot(viewerId?:string) {
     const viewer = viewerId ? players.get(viewerId) : undefined;
     const visible = (actor:Player) => actor.kind === "player" || !viewer || Math.abs(actor.x-viewer.x)<=1100 && Math.abs(actor.y-viewer.y)<=720;
@@ -513,6 +532,7 @@ export function createBattlefieldFight(earned?: (id:string,points:number)=>void,
       traps:viewer ? [...effects.values()].filter(effect=>effect.owner.team===viewer.team).flatMap(effect=>effect.rules.traps) : [],
       drops:viewer ? drops.filter(drop=>drop.team===viewer.team && Math.abs(drop.x-viewer.x)<=1100 && Math.abs(drop.y-viewer.y)<=720)
         .map(drop=>({id:drop.id,x:drop.x,y:drop.y,...combat.items[drop.kind]})) : [],
+      rally:viewer ? rallyPoint(viewer) : undefined,
       attack:viewer ? (()=>{const skill=attackSkill(viewer);return {id:skill.id,rad:skill.rad,geo:skill.geo};})() : undefined,
       players:actors().filter(visible).map(player=>({
         id:player.id, team:player.team, name:player.profile.name, x:player.x, y:player.y, hp:player.hp, max:player.max,

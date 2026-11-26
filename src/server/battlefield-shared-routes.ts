@@ -190,30 +190,32 @@ export function registerSharedBattlefield(
     }
     character.name=character.name.trim().slice(0,48);
     ensureScheduled();
+    const live=roster.active();
+    function checkEnrollment(startsAt:number) {
+      const previous=enrollment.get(startsAt,id) as Enrollment | undefined;
+      if(previous && (previous.team!==team || previous.slot!==slot))
+        return invalid('Bạn đã báo danh bằng nhân vật hoặc phe khác.',409);
+      if(!previous && (enrolled.all(startsAt) as Enrollment[]).filter(entry=>entry.team===team).length>=battlefieldTeamCapacity)
+        return invalid('Phe này đã đủ 100 người báo danh.',409);
+      return previous;
+    }
     if(registering){
       const schedule=battlefieldSchedule(now());
-      if(!schedule.registration) return invalid('Chưa đến giờ báo danh Tống Kim.',409);
-      const previous=enrollment.get(schedule.next,id) as Enrollment | undefined;
-      if(previous){
-        if(previous.team!==team || previous.slot!==slot) return invalid('Bạn đã báo danh bằng nhân vật hoặc phe khác.',409);
-      } else {
-        const count=(enrolled.all(schedule.next) as Enrollment[]).filter(entry=>entry.team===team).length;
-        if(count>=battlefieldTeamCapacity) return invalid('Phe này đã đủ 100 người báo danh.',409);
-        enroll.run(schedule.next,id,slot,team,character.name);
-      }
+      const startsAt=schedule.registration ? schedule.next : live && !current?.manual ? live.startsAt : null;
+      if(startsAt===null) return invalid('Chưa đến giờ báo danh Tống Kim.',409);
+      if(!checkEnrollment(startsAt))enroll.run(startsAt,id,slot,team,character.name);
       return sendJson(reply,200,availability(id));
     }
-    if(!current || !roster.active()) return invalid('Trận chung chưa mở. Hãy báo danh tại Chiêu Mộ Sứ.',409);
+    if(!current || !live) return invalid('Trận chung chưa mở. Hãy báo danh tại Chiêu Mộ Sứ.',409);
     if(matchId!==undefined && matchId!==current.id) return invalid('Trận Tống Kim bạn tham gia đã kết thúc.',409);
-    if(!current.manual){
-      const entry=enrollment.get(current.startsAt,id) as Enrollment | undefined;
-      if(entry?.team!==team || entry.slot!==slot) return invalid('Hãy vào trận bằng đúng nhân vật và phe đã báo danh.',409);
-    }
+    const late=!current.manual && !checkEnrollment(current.startsAt);
+    if(late && matchId!==undefined)return invalid('Chưa báo danh cho trận này.',409);
     const room = roster.join(id,team,character.name);
     if (!room.player) return invalid('Không lấy được suất tham chiến.',409);
     try {
       current.fight.pruneHumans(new Set(room.actors.map(actor=>actor.id)));
       current.fight.join(room.player.id,team,character,id+":"+slot);
+      if(late)enroll.run(current.startsAt,id,slot,team,character.name);
       if(typeof mounted==='boolean')current.fight.setMounted(room.player.id,mounted);
       if(!recipients.has(room.player.id)) recipients.set(room.player.id,{accountId:id,slot:slot as CharacterSlot,pending:0,goods:{}});
     } catch (error) {
@@ -228,10 +230,11 @@ export function registerSharedBattlefield(
 
   app.post('/api/battlefield/shared/sync', (request,reply) => {
     const { id } = requireUser(request);
-    const { matchId, participantId, movement, target, skill, mounted, manualMove, shortRange } = command(request);
+    const { matchId, participantId, movement, target, skill, mounted, manualMove, shortRange, autoRide } = command(request);
     if (typeof matchId !== 'string' || typeof participantId !== 'string' ||
         (manualMove !== undefined && typeof manualMove !== 'boolean') ||
         (shortRange !== undefined && typeof shortRange !== 'boolean') ||
+        (autoRide !== undefined && typeof autoRide !== 'boolean') ||
         (mounted !== undefined && typeof mounted !== 'boolean') ||
         (target !== undefined && target !== null && typeof target !== 'string') ||
         (skill !== undefined && skill !== null && (typeof skill !== 'number' || !Number.isSafeInteger(skill) || skill < 0))) {
@@ -243,7 +246,7 @@ export function registerSharedBattlefield(
     if (!current || matchId !== current.id) return invalid('Trận đấu đã kết thúc.',409);
     if (now !== Date.now) { advance(room.endsAt);settle(); }
     if (!room.finished && typeof mounted==='boolean')current.fight.setMounted(participantId,mounted);
-    if (!room.finished) current.fight.selectSkill(participantId,skill as number | null | undefined,shortRange as boolean | undefined);
+    if (!room.finished) current.fight.selectSkill(participantId,skill as number | null | undefined,shortRange as boolean | undefined,autoRide as boolean | undefined);
     if (!room.finished && target !== undefined) current.fight.chooseTarget(participantId,target as string | null);
     return sendJson(reply,200,output(room));
   });

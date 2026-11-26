@@ -82,7 +82,6 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
     assert.equal((await post(blue,'register',{team:'song',slot:'jxidle'})).statusCode,200);
     assert.equal((await post(blue,'register',{team:'song',slot:'jxidle'})).statusCode,200);
     assert.equal((await post(blue,'register',{team:'jin',slot:'jxidle'})).statusCode,409);
-    assert.equal((await post(red,'register',{team:'jin',slot:'jxidle'})).statusCode,200);
     time=Date.parse('2026-11-26T08:00:00+07:00');
     const status=(await post(blue,'status',{})).json();
     assert.equal(status.startsAt,time);
@@ -90,12 +89,19 @@ test('two signed-in SQLite characters share native hits, score and the respawn s
     assert.equal(status.teams.song.humans,1);
     assert.equal(status.teams.song.sims,99);
     assert.equal(status.teams.song.soldiers,35);
+    const beforeLate=(await post(red,'status',{})).json();
+    assert.equal(beforeLate.registration,null);
+    assert.equal(beforeLate.teams.jin.humans,0);
     const wrongMatch=await post(blue,'join',{team:'song',slot:'jxidle',matchId:'expired-round'});
     assert.equal(wrongMatch.statusCode,409);
     const a=await post(blue,'join',{team:'song',slot:'jxidle'}), b=await post(red,'join',{team:'jin',slot:'jxidle'});
     assert.equal(a.statusCode,200,a.body);assert.equal(b.statusCode,200,b.body);
     const aRoom=a.json(), bRoom=b.json();
     assert.equal(aRoom.matchId,bRoom.matchId);
+    assert.equal(bRoom.teams.jin.humans,1);
+    assert.equal(bRoom.teams.jin.sims,99);
+    assert.deepEqual((await post(red,'status',{})).json().registration,{team:'jin',slot:'jxidle'});
+    assert.equal((await post(red,'join',{team:'song',slot:'jxidle'})).statusCode,409);
     const ref=(room)=>({matchId:room.matchId,participantId:room.player.id});
     const blueRef=ref(aRoom),redRef=ref(bRoom);
     let position=aRoom.combat.players[0], sequence=0;
@@ -419,4 +425,26 @@ test('all ten SIM factions use the GM ten-slot equipment builder and can equip i
     assert.ok(stats.main.L>=10,faction+" effective skill includes equipment bonuses");
   }
   assert.equal(Object.keys(combat.computerProfile('shaolin').profile.eq).length,0);
+});
+
+test('Tống Kim Auto dismounts on the server before a grounded faction attack',()=>{
+  const {createBattlefieldCombat}=require('../src/server/battlefield-combat.ts');
+  const combat=createBattlefieldCombat(()=>{});
+  const mounted=combat.computerProfile('wudang',true).profile;
+  const other=combat.computerProfile('shaolin').profile;
+  const fight=createBattlefieldFight();
+  fight.join('horse','song',mounted);
+  fight.join('target','jin',other);
+  fight.move('target',710,2784);
+  fight.setMounted('horse',true);
+  fight.selectSkill('horse',null,false,true);
+  fight.chooseTarget('horse','target');
+  const own=()=>fight.snapshot().players.find(actor=>actor.id==='horse');
+  assert.equal(own().mounted,true);
+  for(let i=0;i<10;i++)fight.tick(1/30);
+  assert.equal(own().mounted,true);
+  assert.equal(own().casts,0);
+  for(let i=0;i<30;i++)fight.tick(1/30);
+  assert.equal(own().mounted,false);
+  assert.ok(own().casts>0);
 });
